@@ -1,5 +1,20 @@
 # html-with-ai — Edit & Tell <Agent> what to do
 
+**설치는 AI 에게 시키면 된다.** Claude Code(또는 Codex·Gemini) 에 이렇게 말한다:
+
+> `https://github.com/<owner>/html-with-ai` 보고 html-with-ai 깔아줘
+
+에이전트가 할 일 (이 README 를 읽은 에이전트는 그대로 따른다):
+1. `git clone https://github.com/<owner>/html-with-ai ~/.config/html-with-ai/repo`
+2. Mac/Linux: `sh ~/.config/html-with-ai/repo/plugins/html-with-ai/install.sh` · Windows: `powershell -ExecutionPolicy Bypass -File $HOME\.config\html-with-ai\repo\plugins\html-with-ai\install.ps1`
+   (파이썬 3 가 없으면 스크립트가 설치하고, `~/.claude/skills/html-with-ai` 배치와 PostToolUse 훅 등록까지 한다)
+3. `~/.claude` 쓰기가 막혀 2 가 실패하면 그 한 줄만 사용자에게 보여 직접 실행하게 한다.
+4. 끝나면 "Claude Code 를 새로 열면 적용된다. 첫 HTML 을 만들 때 발동 방식을 묻는다" 고 알린다.
+
+Claude Code 플러그인으로 쓰려면(훅 자동 포함): `/plugin marketplace add <owner>/html-with-ai` → `/plugin install html-with-ai@html-with-ai`.
+
+---
+
 AI 와 함께 만든 HTML 을 브라우저에서 바로 고치고(이중클릭), 문구에 댓글을 달아(우클릭) 작업 중인 에이전트 세션에 돌려보내는 도구.
 Claude Code · Codex · Gemini CLI 어디서든 같은 화면. 파이썬 3 표준 라이브러리만 쓴다 (Mac/Windows/Linux).
 
