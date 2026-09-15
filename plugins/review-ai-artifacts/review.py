@@ -8,18 +8,19 @@ Claude Code · Codex · Gemini CLI 등 어느 에이전트와도 쓴다. 화면 
 - 더블클릭 = 그 자리에서 글자 수정 · 바깥 클릭 = 끝 · Cmd+S / [저장] = 파일 덧쓰기(첫 저장 때 .bak)
 - .md 는 보기용으로 렌더해 띄운다. 화면에서 파일을 쓰지 않고, 제출 이벤트(before/after)로 에이전트가 원문에 반영한다 (source: md)
 - 우클릭 = 그 요소에 댓글. 문구를 드래그해 고른 뒤 우클릭하면 그 문구에만 댓글
-- [진행중인 __AGENT__ Session에 제출] = 저장 + 바뀐 글자 목록·댓글을 <폴더>/_review_events.jsonl 에 한 줄 기록 → 에이전트가 받아 반영.
+- [진행중인 <Agent> Session에 제출] = 파일에 기록. Claude 는 훅·Monitor 가 이벤트 파일을 받고, Codex 는 세션 ID가 있으면 codex queue 로 알림. 저장·큐 접수·반영 완료는 별도 상태.
   변경·댓글 없이 누르면 approved=true — "이상 없음" 승인으로 전달된다
 
 에이전트 쪽: 이 스크립트를 띄운 세션이 이벤트 파일을 지켜본다(SKILL.md / README.md).
 문서에 <script id="oub-meta"> 가 있고 OPENUB_REPORT_LIB 환경변수가 있으면 저장 때 수정일·이력을 갱신한다(openub-report 연동, 선택).
 ponytail: 글자 수정과 댓글만. 요소 추가·삭제·이동은 댓글로 에이전트에게 맡긴다.
 """
-import sys, os, re, json, pathlib, datetime, webbrowser, http.server, argparse
+import sys, os, re, json, pathlib, datetime, webbrowser, http.server, argparse, shutil
+import events as review_events
 from html import escape as html_escape
 
 CONFIG = pathlib.Path.home() / ".config" / "review-ai-artifacts" / "config.json"   # 사용자별 설정(mode·cases·initial·agent). SKILL.md 참조
-AGENT_ENV = [("CLAUDECODE", "Claude"), ("CLAUDE_CODE_ENTRYPOINT", "Claude"), ("CODEX_SANDBOX", "Codex"), ("CODEX_HOME", "Codex"),
+AGENT_ENV = [("CLAUDECODE", "Claude"), ("CLAUDE_CODE_ENTRYPOINT", "Claude"), ("CODEX_THREAD_ID", "Codex"), ("CODEX_SANDBOX", "Codex"), ("CODEX_HOME", "Codex"),
              ("GEMINI_CLI", "Gemini"), ("GEMINI_API_KEY", "Gemini"), ("CURSOR_TRACE_ID", "Cursor"), ("COPILOT_AGENT", "Copilot")]
 def detect_agent():
     for k, v in AGENT_ENV:
@@ -32,6 +33,10 @@ ap.add_argument("--show-config", action="store_true")
 ap.add_argument("--set-initial", help="댓글 마커에 보일 한 글자 (예: 승)")
 ap.add_argument("--agent", help="화면에 표시할 에이전트 이름: Claude · Codex · Gemini … (기본: 환경변수로 감지, 없으면 설정값, 없으면 'AI')")
 ap.add_argument("--set-agent", help="기본 에이전트 이름을 설정에 저장")
+ap.add_argument("--thread", help="Codex 제출 대상 UUID. 기본 CODEX_THREAD_ID. --agent는 표시명일 뿐 전달 경로가 아님")
+ap.add_argument("--manual", action="store_true", help="자동 전달 없이 제출 기록만 저장")
+ap.add_argument("--ack", help="반영을 완료한 제출 ID")
+ap.add_argument("--result", default="반영 완료", help="--ack 처리 결과")
 A = ap.parse_args()
 cfg = json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
 INITIAL = cfg.get("initial", "나")
@@ -59,8 +64,26 @@ def pick_port(doc, want=None):
                 if r.read().decode() == str(doc): return p, True
         except Exception: pass
     raise SystemExit("8901~8990 포트가 모두 사용 중")
+EVENTS = DOC.parent / "_review_events.jsonl"
+THREAD = (A.thread or os.environ.get("CODEX_THREAD_ID")) if AGENT.lower() == "codex" and not A.manual else None
+CODEX = shutil.which("codex") if THREAD else None
+if THREAD:
+    import uuid
+    THREAD = str(uuid.UUID(THREAD))  # Exact session only; never route by display name or --last.
+if A.ack:
+    row = next((r for r in review_events.read(EVENTS) if r.get("id") == A.ack), None)
+    if row is None or row.get("doc") != str(DOC): raise SystemExit("이 문서의 제출 ID가 아닙니다")
+    review_events.update(EVENTS, A.ack, status="done", result=A.result)
+    print("반영 완료 기록:", A.ack); sys.exit(0)
 PORT, ALREADY = pick_port(DOC, A.port)
 if ALREADY:
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=2) as r: health = json.load(r)
+        if health.get("thread_id") != THREAD or health.get("version") != 2:
+            print("주의: 기존 서버의 전달 연결이 현재 세션과 다릅니다. /doc와 PID 확인 후 해당 서버만 재시작하세요.", flush=True)
+    except Exception:
+        print("주의: 기존 서버는 전달 상태를 지원하지 않습니다. /doc와 PID 확인 후 해당 서버만 재시작하세요.", flush=True)
     print(f"이미 떠 있음: http://localhost:{PORT}/  ({DOC.name})", flush=True); sys.exit(0)
 IS_MD = DOC.suffix.lower() in (".md", ".markdown")
 EVENTS = DOC.parent / "_review_events.jsonl"
@@ -97,11 +120,11 @@ body{padding-top:50px!important}
 @media print{#__rv_bar,#__rv_css,#__rv_pop,.__rv_pin{display:none}body{padding-top:0!important}}
 </style>
 <div id="__rv_bar"><b>Edit &amp; Tell __AGENT__ what to do</b>
-<button id="__rv_save" disabled>저장</button><button id="__rv_ok" class="pri">진행중인 __AGENT__ Session에 제출</button><span class="st" id="__rv_st"></span><span class="hint">이중클릭하여 직접 편집. 우클릭하여 현 __AGENT__ Session에게 Comment</span></div>
+<button id="__rv_save" disabled>저장</button><button id="__rv_ok" class="pri">진행중인 __AGENT__ Session에 제출</button><button id="__rv_copy" hidden>전달 요청 복사</button><span class="st" id="__rv_st" role="status" aria-live="polite">__DELIVERY_LABEL__</span><span class="hint">이중클릭하여 직접 편집. 우클릭하여 현 __AGENT__ Session에게 Comment</span></div>
 <script id="__rv_js">
 (function(){
 Array.from(document.body.children).forEach(function(x){x.setAttribute('data-rv-orig','')});
-var dirty=false,submitted=false,orig=new Map(),notes=[],INITIAL=__INITIAL__,ISMD=__ISMD__;
+var dirty=false,submitted=false,orig=new Map(),notes=[],INITIAL=__INITIAL__,ISMD=__ISMD__,requestId=null,lastEvent=null;
 if(ISMD){document.getElementById('__rv_save').style.display='none'}
 var bar=document.getElementById('__rv_bar'),st=document.getElementById('__rv_st'),btn=document.getElementById('__rv_save'),ok=document.getElementById('__rv_ok');
 function ours(el){return el.closest('#__rv_bar,#__rv_pop,.__rv_pin')}
@@ -123,7 +146,7 @@ document.addEventListener('dblclick',function(e){var t=target(e);if(!t)return;e.
   t.addEventListener('blur',function(){t.removeAttribute('contenteditable');brify(t);if(t.dataset.rvHref!==undefined){t.setAttribute('href',t.dataset.rvHref);delete t.dataset.rvHref}},{once:true});
 },true);
 document.addEventListener('mousedown',function(e){var d=document.getElementById('__rv_pop');if(d&&!d.contains(e.target)&&!d.querySelector('textarea').value.trim())closePop()},true); // 적기 전이면 바깥 클릭으로 닫힘
-document.addEventListener('click',function(e){if(ours(e.target))return;if(e.target.closest('a')&&!e.target.isContentEditable)e.preventDefault()},true); // 편집 중 링크 이동 방지
+document.addEventListener('click',function(e){if(ours(e.target))return;var a=e.target.closest('a');if(a&&!e.target.isContentEditable&&!(a.getAttribute('href')||'').startsWith('#')&&!a.hasAttribute('download'))e.preventDefault()},true); // 편집 중 링크 이동 방지
 document.addEventListener('contextmenu',function(e){var t=target(e)||mediaTarget(e);if(!t)return;e.preventDefault();
   var sel=window.getSelection(),quote='',range=null;
   if(sel&&!sel.isCollapsed&&t.contains(sel.anchorNode)&&sel.toString().trim()){quote=sel.toString().trim();range=sel.getRangeAt(0).cloneRange()}
@@ -168,19 +191,34 @@ function serialize(){orig.forEach(function(v,el){brify(el)});   // 편집한 요
   var keep=Array.from(document.body.children).filter(function(x){return x.hasAttribute('data-rv-orig')}).length; // 브라우저 확장이 끼운 요소 제거
   Array.from(c.querySelector('body').children).forEach(function(x,i){if(i>=keep)x.remove()});
   c.removeAttribute('data-theme');return '<!doctype html>'+c.outerHTML}
-function post(url,body,type){return fetch(url,{method:'POST',headers:{'Content-Type':type},body:body}).then(function(r){return r.text()})}
+function post(url,body,type){return fetch(url,{method:'POST',headers:{'Content-Type':type},body:body}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text()})}
 function save(){if(document.activeElement&&document.activeElement.isContentEditable)document.activeElement.blur();
-  st.textContent='저장 중…';return post('/save',serialize(),'text/html;charset=utf-8').then(function(t){dirty=false;btn.disabled=true;st.textContent=t;return fetch('/mtime').then(function(r){return r.text()}).then(function(m){MT=m;return t})}).catch(function(e){st.textContent='실패: '+e})}
-btn.addEventListener('click',save);
-ok.addEventListener('click',function(){var ev={edits:edits(),comments:notes.map(function(x){return {n:x.n,path:x.path,anchor:x.anchor,quote:x.quote,text:x.text}})};ev.approved=!ev.edits.length&&!ev.comments.length;   // 변경·댓글 없이 제출 = 이상 없음(승인)
+  st.textContent='저장 중…';return post('/save',serialize(),'text/html;charset=utf-8').then(function(t){dirty=false;btn.disabled=true;st.textContent=t;return fetch('/mtime').then(function(r){return r.text()}).then(function(m){MT=m;return t})}).catch(function(e){st.textContent='저장 실패: '+e;throw e})}
+btn.addEventListener('click',function(){save().catch(function(){})});
+ok.addEventListener('click',function(){if(ok.disabled)return;ok.disabled=true;requestId=requestId||crypto.randomUUID();var ev={id:requestId,edits:edits(),comments:notes.map(function(x){return {n:x.n,path:x.path,anchor:x.anchor,quote:x.quote,text:x.text}})};ev.approved=!ev.edits.length&&!ev.comments.length;   // 변경·댓글 없이 제출 = 이상 없음(승인)
   ((dirty&&!ISMD)?save():Promise.resolve()).then(function(){return post('/confirm',JSON.stringify(ev),'application/json')})
-  .then(function(t){submitted=true;st.textContent=t;notes=[];document.querySelectorAll('[data-rv-note]').forEach(function(x){x.removeAttribute('data-rv-note')});
-    document.querySelectorAll('mark[data-rv-mark]').forEach(function(m){m.replaceWith(document.createTextNode(m.textContent))});pins.forEach(function(p){p.remove()});pins.clear();orig.forEach(function(v,el){orig.set(el,el.innerText)})})});
-document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.key==='s'){e.preventDefault();if(!ISMD)save();else st.textContent='md 는 제출하면 에이전트가 원문에 반영합니다'}if(e.key==='Escape')closePop()});
+  .then(function(t){lastEvent=JSON.parse(t);submitted=true;showStatus(lastEvent);requestId=null;notes=[];document.querySelectorAll('[data-rv-note]').forEach(function(x){x.removeAttribute('data-rv-note')});
+    document.querySelectorAll('mark[data-rv-mark]').forEach(function(m){m.replaceWith(document.createTextNode(m.textContent))});pins.forEach(function(p){p.remove()});pins.clear();orig.forEach(function(v,el){orig.set(el,el.innerText)});dirty=false;btn.disabled=true}).catch(function(e){st.textContent='제출 확인 실패 · 입력 보존됨: '+e}).finally(function(){ok.disabled=false})});
+document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.key==='s'){e.preventDefault();if(!ISMD)save().catch(function(){});else st.textContent='md 는 제출하면 에이전트가 원문에 반영합니다'}if(e.key==='Escape')closePop()});
 window.addEventListener('resize',function(){pins.forEach(function(p,el){pin(el)})});
-window.addEventListener('beforeunload',function(e){if(dirty){e.preventDefault();e.returnValue=''}});
+window.addEventListener('beforeunload',function(e){if(dirty||notes.length){e.preventDefault();e.returnValue=''}});
+function showStatus(r){
+  var copy=document.getElementById('__rv_copy'),AG='__AGENT__';
+  if(r.status==='done'){st.textContent=r.result||'반영 완료';copy.hidden=true;return}
+  if(AG!=='Codex'&&(r.delivery==='manual'||!r.delivery)){   // Claude 등: 훅·Monitor 가 이벤트 파일을 지켜본다
+    st.textContent=r.approved?('이상 없음으로 제출되었습니다 — '+AG+' 에게 승인이 전달됩니다'):('제출이 완료되었습니다 — '+AG+' 가 반영하면 화면이 자동으로 새로 고쳐집니다');copy.hidden=true;return}
+  if(r.result){st.textContent=r.result;copy.hidden=false;return}
+  var labels={queued:'저장됨 · Codex 큐 접수 · 반영 대기',pending:'저장됨 · 전달 확인 중',manual:'저장됨 · 자동 전달 미연결',failed:'저장됨 · 자동 전달 실패',unknown:'저장됨 · 전달 결과 미확인'};
+  st.textContent=labels[r.delivery]||'저장됨 · 반영 대기';
+  copy.hidden=r.delivery==='queued'||r.delivery==='pending';
+}
+document.getElementById('__rv_copy').addEventListener('click',function(){
+  var message='review-ai-artifacts 제출 내용을 반영해줘. 문서: '+__DOC_JSON__+' / 제출 ID: '+((lastEvent||{}).id||'기존 미처리 제출');
+  navigator.clipboard.writeText(message).then(function(){st.textContent='전달 요청 복사 완료 · 현재 대화에 붙여넣기'}).catch(function(){st.textContent=message});
+});
+setInterval(function(){if(dirty||notes.length||ok.disabled)return;fetch('/status').then(function(r){return r.json()}).then(function(r){if(r.id||r.pending_count){lastEvent=r;showStatus(r)}}).catch(function(){})},2000);
 var MT=__MTIME__;setInterval(function(){fetch('/mtime').then(function(r){return r.text()}).then(function(m){if(m===MT)return;
-  if(dirty||(document.activeElement&&document.activeElement.isContentEditable)){st.textContent='__AGENT__ 가 문서를 갱신했습니다 — '+(ISMD?'제출하면':'저장하면')+' 새 판을 불러옵니다';return}
+  if(dirty||notes.length||(document.activeElement&&document.activeElement.isContentEditable)){st.textContent='__AGENT__ 가 문서를 갱신했습니다 — '+(ISMD?'제출하면':'저장하면')+' 새 판을 불러옵니다';return}
   location.reload()}).catch(function(){})},2000);
 })();
 </script>
@@ -261,14 +299,19 @@ def reply(h, code, text, ctype="text/plain;charset=utf-8"):
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_GET(self):
+        if self.path == "/health": return reply(self, 200, json.dumps({"version":2,"doc":str(DOC),"thread_id":THREAD,"automatic":bool(THREAD and CODEX)}), "application/json")
+        if self.path == "/status": return reply(self, 200, json.dumps(review_events.status(EVENTS, DOC, THREAD if CODEX else None), ensure_ascii=False), "application/json")
         if self.path.startswith("/mtime"): return reply(self, 200, str(DOC.stat().st_mtime_ns))
         if self.path.startswith("/doc"): return reply(self, 200, str(DOC))
         body = md_to_html(DOC.read_text(encoding="utf-8")) if IS_MD else DOC.read_text(encoding="utf-8")
         ui = (UI.replace("__INITIAL__", json.dumps(INITIAL, ensure_ascii=False)).replace("__MTIME__", json.dumps(str(DOC.stat().st_mtime_ns)))
-                .replace("__AGENT__", html_escape(AGENT)).replace("__ISMD__", "true" if IS_MD else "false"))
+                .replace("__AGENT__", html_escape(AGENT)).replace("__DELIVERY_LABEL__", ("Codex 자동 전달 연결" if THREAD and CODEX else "자동 전달 미연결 · 제출 저장 후 대화에서 알림 필요") if AGENT.lower() == "codex" else "").replace("__DOC_JSON__", json.dumps(str(DOC), ensure_ascii=False).replace("<", "\\u003c")).replace("__ISMD__", "true" if IS_MD else "false"))
         body = body.replace("</body>", ui + "</body>", 1) if "</body>" in body else body + ui
         reply(self, 200, body, "text/html;charset=utf-8")
     def do_POST(self):
+        allowed = {f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"}
+        if self.headers.get("Host") not in {f"localhost:{PORT}", f"127.0.0.1:{PORT}"} or self.headers.get("Origin") not in allowed | {None}:
+            return reply(self, 403, "다른 사이트에서 제출할 수 없습니다")
         raw = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode("utf-8")
         if self.path.startswith("/save"):
             if IS_MD: return reply(self, 200, "md 는 화면에서 바로 저장하지 않습니다 — 제출하면 에이전트가 원문에 반영합니다")
@@ -278,11 +321,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             raw = bump_meta(raw); DOC.write_text(raw, encoding="utf-8")
             return reply(self, 200, f"저장됨 {len(raw.encode()):,}B")
         if self.path.startswith("/confirm"):
-            ev = json.loads(raw); ev.update(ts=datetime.datetime.now().isoformat(timespec="seconds"), doc=str(DOC), agent=AGENT, status="new")
-            ev["approved"] = not ev.get("edits") and not ev.get("comments"); ev["source"] = "md" if IS_MD else "html"
-            with EVENTS.open("a", encoding="utf-8") as f: f.write(json.dumps(ev, ensure_ascii=False) + "\n")
-            if ev["approved"]: return reply(self, 200, f"이상 없음으로 제출되었습니다 — {AGENT} 에게 승인이 전달됩니다")
-            return reply(self, 200, f"제출이 완료되었습니다 — 수정 {len(ev['edits'])}건 · 댓글 {len(ev['comments'])}건. {AGENT} 가 반영하면 화면이 자동으로 새로 고쳐집니다")
+            try:
+                ev = review_events.submit(EVENTS, DOC, AGENT, "md" if IS_MD else "html", json.loads(raw), THREAD, CODEX)
+                return reply(self, 200, json.dumps(ev, ensure_ascii=False), "application/json")
+            except (ValueError, TypeError, TimeoutError) as error:
+                return reply(self, 400, str(error))
         reply(self, 404, "?")
 
 if __name__ == "__main__":

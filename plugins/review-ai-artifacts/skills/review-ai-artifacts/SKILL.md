@@ -7,7 +7,7 @@ description: Edit & Tell <Agent> what to do — 사용자에게 보여 줄 아�
 
 사용자는 완성된 화면을 보면서 고치고 싶어 한다. 코드나 md 를 열어 달라고 하지 않는다.
 HTML 산출물을 넘길 때는 파일 경로만 알려 주지 말고 **이 화면으로 띄워서** 넘긴다.
-Claude Code · Codex · Gemini CLI 어디서 쓰든 화면과 동작은 같고, 문구의 에이전트 이름만 바뀐다.
+편집 화면은 공통이지만 제출 전달 경로는 환경별로 다르다. `--agent`는 표시명이다. 파일 저장 성공을 세션 전달 성공으로 표현하지 않는다.
 
 ## 설치 (폴더 하나 · Mac/Windows/Linux)
 
@@ -29,7 +29,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 - Codex 는 프로젝트 `AGENTS.md` 에, Gemini CLI 는 `GEMINI.md` 에 "HTML 산출물은 <경로>/SKILL.md 규약(review-ai-artifacts)으로 띄운다" 한 줄.
 - 실행 명령은 Mac/Linux `python3`, Windows `python`. 설정은 `~/.config/review-ai-artifacts/config.json` 하나.
 
-## 발동은 훅이 보장한다 — 스킬 이름을 타이핑할 필요가 없다
+## Claude Code 자동 발동 훅
 
 플러그인(`hooks/hooks.json`) 또는 `install.sh`/`install.ps1`(`~/.claude/settings.json`) 이 `hook.py` 를 두 이벤트에 건다.
 
@@ -38,7 +38,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 - **Stop** (턴 종료) — 안전망. 작업 디렉터리 아래에서 이 세션 중 바뀐 `.html` 이 아직 처리되지 않았으면 그때 발동한다. 어떤 도구로 만들었는지와 무관하다. `stop_hook_active` 면 재발동하지 않는다.
 
 처리한 문서는 `~/.config/review-ai-artifacts/state.json` 에 세션별로 기록해 같은 문서를 두 번 띄우지 않는다. 설정 파일이 없으면 훅이 `mode: ask` 기본 파일을 만들고 첫 사용 안내를 한 번 넣는다.
-스킬 설명에 의존하지 않으므로 "왜 이번엔 안 떴지" 가 없다. 그래도 훅이 없는 환경이면 위 description 대로 스킬 자체가 발동한다.
+이 훅은 Claude Code용이다. Codex에서 등록됐다고 가정하지 않는다. 훅 없는 환경에서는 스킬을 읽고 직접 실행한다.
 
 | 상태 | 훅이 하는 일 |
 |---|---|
@@ -96,18 +96,20 @@ python3 review.py --set-agent Codex            # 환경변수로 감지되지 �
    # Windows (PowerShell)
    Start-Process python -ArgumentList '<이 폴더>\review.py','<산출물.html>','--agent','Claude' -WindowStyle Hidden   # 포트 자동
    ```
-2. 이벤트 파일을 지켜본다. Claude Code 는 `Monitor`(persistent), 다른 에이전트는 백그라운드 `tail -F` 또는 폴링.
-   ```bash
-   F="<산출물 폴더>/_review_events.jsonl"; touch "$F"; tail -n0 -F "$F" | grep --line-buffered '"status": "new"'
-   ```
-   Windows 는 `Get-Content -Wait -Tail 0 <파일> | Select-String '"status": "new"'`. 감시 수단이 없으면 사용자가 "제출했어" 라고 말할 때 파일을 읽어도 된다.
-3. 사용자에게는 "http://localhost:<포트> 에 띄웠다. 이중클릭으로 고치고 우클릭으로 댓글, 끝나면 제출" 한 줄만 말한다.
+2. **전달 연결을 확인한다.** Codex에서는 `CODEX_THREAD_ID`를 상속한 서버가 설치된 `codex queue --thread <UUID> --message <알림>`으로 현재 세션에 제출 위치·ID를 알린다. 환경에 ID가 없으면 확인한 현재 세션 UUID를 `--thread`로 지정한다. 이름·`--last`로 추측하거나 별도 `codex exec resume`를 띄우지 않는다.
+   - 실행 전 `codex queue --help`, 실행 후 `/health`의 `thread_id`와 현재 UUID를 대조한다. `/health`만으로 실제 수신을 증명하지 않는다. 최초 연결은 격리된 테스트 문서 제출 → 큐 접수 → 대상 세션 수신 → `--ack` 반영 완료로 검증한다.
+   - 기존 서버가 같은 문서를 서비스해도 옛 버전·다른 thread면 그대로 재사용하지 않는다. `/doc`와 PID를 확인하고 **그 문서의 서버만** 재시작한다. 미제출 사용자 입력이 있으면 보존 후 재시작한다.
+   - 큐 접수는 반영 완료가 아니다. 화면 상태는 `저장됨 → Codex 큐 접수·반영 대기 → 반영 완료`다. 큐 실패·시간 초과에서도 이벤트를 보존하며, 시간 초과를 자동 재전송하지 않는다.
+   - Codex CLI/현재 UUID가 없거나 queue가 실패하면 수동 전달로 표시한다. 버튼의 `전달 요청 복사`로 현재 대화에 알릴 수 있다. **백그라운드 tail이나 단순 폴링은 종료된 Codex 턴을 깨우는 연결이 아니다.** 이를 자동 반응 설정이라고 보고하지 않는다.
+   - Claude Code Monitor 등 검증된 감시 기능은 해당 환경에서 사용한다. 다른 에이전트에서 지원된다고 추정하지 않는다.
+3. 사용자에게는 "http://localhost:<포트> 에 띄웠다. 이중클릭으로 고치고 우클릭으로 댓글, 끝나면 [진행중인 <Agent> Session에 제출]"이라고 알리고, 자동 전달 미연결이면 그 제한도 함께 알린다.
 4. 이벤트 한 줄 JSON 을 읽는다.
    - `edits[]` `{path, before, after}` — 사용자가 직접 고친 글자. **파일에는 이미 저장돼 있다.** 다시 쓰지 말고 요약해 "수정 N건 반영 확인" 이라고 알린다. 생성 스크립트가 있는 문서면 원본(md·json·py)에도 같은 수정을 반영한다.
    - `comments[]` `{n, path, anchor, quote, text}` — 요청. `quote` 가 있으면 그 문구만, 없으면 `anchor` 요소 전체가 대상. 파일을 고쳐 저장하고 번호별로 무엇을 어떻게 바꿨는지 답한다. 판단이 갈리면 그 번호만 물어본다.
    - **`source: "md"`** — .md 산출물. 편집 화면은 md 를 렌더한 것이고 **파일에 저장되지 않았다.** `edits[]` 의 `before` 문장을 md 원문에서 찾아 `after` 로 바꿔 쓴다(한두 글자 수정이 대부분이라 문자열 치환으로 충분하다. 못 찾으면 그 항목만 사용자에게 알린다). 댓글은 HTML 과 같다.
-   - `approved: true` (edits·comments 모두 비어 있음) — 사용자가 **이상 없음으로 승인**한 것이다. 되묻지 말고 "승인 확인" 한 줄 뒤 다음 단계(배포·공유·다음 작업)로 넘어간다.
-   - 처리한 줄은 `status` 를 `done` 으로 바꾼다. 배포 대상(아티팩트 등)이 있으면 같은 링크에 갱신한다.
+   - `approved: true`는 **해당 문서 검토의 이상 없음**이다. 다른 문서의 댓글을 무효화하지 않고 외부 배포·공유를 새로 승인하지 않는다. 기존에 승인된 후속 작업만 계속한다.
+   - 처리를 끝낸 뒤 `python3 <스킬>/review.py "<문서>" --ack "<이벤트 UUID>" --result "반영 요약"`을 실행한다. 문서·ID를 검증하고 잠금 아래 `status: done`을 기록한다. 화면에도 완료 상태가 표시된다. 큐 전달 성공만으로 done 처리하지 않는다.
+   - 구형 ID 없는 이벤트는 원문을 보존해 처리하고 고유 UUID를 부여한 후 ack한다. 같은 파일의 다른 문서·새 이벤트를 덮어쓰지 않는다. 부분 처리 중인 댓글은 done으로 표시하지 않는다.
    - 편집기는 파일 변경을 2초마다 감지해 **자동으로 새로 고친다**. 사용자가 편집 중이면 저장 뒤에 불러온다. 파일을 고쳐 저장하는 것으로 끝이다.
 5. 세션이 바뀌면 다음 세션이 `_review_events.jsonl` 의 `status: new` 줄을 먼저 처리한다.
 
@@ -119,7 +121,7 @@ python3 review.py --set-agent Codex            # 환경변수로 감지되지 �
 | 우클릭 | 그 요소에 댓글. 문구를 드래그해 고른 뒤 우클릭하면 **그 문구에만** 댓글. 적기 전이면 바깥 클릭·Esc 로 닫힘 |
 | Enter | 댓글 보내기 (Shift+Enter 줄바꿈). 보낸 자리에 이니셜 마커 |
 | Cmd+S · [저장] | 파일 덧쓰기. 첫 저장 때 `.bak` |
-| [진행중인 <Agent> Session에 제출] | 저장 + 수정 내역·댓글을 에이전트에 전달. 변경·댓글이 없으면 **"이상 없음" 승인**으로 전달된다 |
+| [진행중인 <Agent> Session에 제출] | 저장 후 연결된 세션 큐에 알림. 미연결·실패면 수동 전달 안내. 변경·댓글이 없으면 해당 문서의 검토 승인으로 저장 |
 
 ## 원칙
 
@@ -134,10 +136,15 @@ python3 review.py --set-agent Codex            # 환경변수로 감지되지 �
 
 | 파일 | 역할 |
 |---|---|
-| `review.py` | 편집기 서버 + 브라우저 UI |
+| `review.py` | 편집기 서버 + 브라우저 UI + 완료 ack CLI |
+| `events.py` · `test_events.py` | 제출 저장·Codex queue·상태 갱신, 격리 회귀 검사 |
 | `hook.py` · `register_hook.py` | PostToolUse(Write·Edit·Bash) + Stop 훅과 그 등록 스크립트 |
 | `~/.config/review-ai-artifacts/state.json` | 세션별 처리 기록(중복 발동 방지) |
 | `install.sh` · `install.ps1` | 파이썬 3 확인·설치 + 스킬 폴더 배치 (Mac/Linux · Windows) |
 | `README.md` | Codex · Gemini 등 Claude 외 에이전트용 요약 |
 | `~/.config/review-ai-artifacts/config.json` | 사용자 설정 (mode · cases · initial · agent) |
 | `<문서 폴더>/_review_events.jsonl` | 제출 기록. gitignore 대상 |
+
+## QA 문서 피드백
+
+사용자가 직접 재현하려는 QA 목록에는 제품 화면 이름·진입 경로·대상 주소/기간·조작·기대/관측 결과를 적는다. 번호 ID만으로 화면을 설명하지 않는다. 확보한 실제 스크린샷을 해당 문제 옆에 붙이고, 정지 이미지로 클릭 전후 동작을 입증하지 않는다. 영상이 없으면 없다고 밝힌다. 코드상 가능성은 실제 재현과 구분하며 가짜 화면을 만들지 않는다. 의도된 사양이라는 사용자 판정은 이슈 분류에 반영한다.

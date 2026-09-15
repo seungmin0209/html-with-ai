@@ -117,15 +117,15 @@ def instruct(event, doc, cfg, agent, sid):
     if mode == "cases":
         emit(event, f"{lead} 발동 방식이 cases={cfg.get('cases')} 다. '{doc.name}' 이 그 경우에 해당하면 `{PY} \"{rv}\" \"{doc}\" --agent {agent}` 를 백그라운드로 띄우고 이벤트 파일을 지켜본다. 아니면 띄우지 않는다. 규약: {skill}")
     port = serving(doc) or launch(doc, agent)
-    emit(event, f"{lead} '{doc.name}' 을 편집·댓글 화면으로 띄웠다: http://localhost:{port}/ . 사용자에게 이 주소와 \"이중클릭으로 고치고 우클릭으로 댓글, 끝나면 [진행중인 {agent} Session에 제출]\" 을 한 줄로 알려라. "
-         f"제출 이벤트 파일을 지켜봐라(Claude Code 는 Monitor persistent): {doc.parent/'_review_events.jsonl'} — status \"new\" 줄이 오면 edits 는 반영 확인, comments 는 파일을 고쳐 저장하고 status 를 done 으로. 규약: {skill}")
+    emit(event, f"{lead} '{doc.name}' 을 편집·댓글 화면으로 띄웠다: http://localhost:{port}/ . 사용자에게 이 주소와 \"이중클릭으로 고치고 우클릭으로 댓글, 끝나면 [검토 제출]\" 을 한 줄로 알려라. "
+         f"Codex는 CODEX_THREAD_ID와 codex queue 연결을 /health에서 확인한다. 파일 tail만으로 턴 종료 후 자동 재개된다고 안내하지 않는다. 제출 이벤트 파일: {doc.parent/'_review_events.jsonl'} — status \"new\" 줄이 오면 edits 는 반영 확인, comments 는 파일을 고쳐 저장하고 status 를 done 으로. 규약: {skill}")
 
 def main():
     try: ev = json.load(sys.stdin)
     except Exception: sys.exit(0)
     event = ev.get("hook_event_name") or ("Stop" if "stop_hook_active" in ev else "PostToolUse")
     sid = ev.get("session_id") or "nosession"; cwd = ev.get("cwd") or os.getcwd()
-    cfg = config(); agent = os.environ.get("HTML_WITH_AI_AGENT") or cfg.get("agent") or "Claude"
+    cfg = config(); agent = os.environ.get("HTML_WITH_AI_AGENT") or ("Codex" if os.environ.get("CODEX_THREAD_ID") else None) or cfg.get("agent") or "Claude"
     sess = session_start(sid)
     if event == "Stop":
         if ev.get("stop_hook_active"): sys.exit(0)
