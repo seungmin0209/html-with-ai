@@ -7,7 +7,8 @@ Claude Code · Codex · Gemini CLI 등 어느 에이전트와도 쓴다. 화면 
 브라우저에서:
 - 더블클릭 = 그 자리에서 글자 수정 · 바깥 클릭 = 끝 · Cmd+S / [저장] = 파일 덧쓰기(첫 저장 때 .bak)
 - 우클릭 = 그 요소에 댓글. 문구를 드래그해 고른 뒤 우클릭하면 그 문구에만 댓글
-- [진행중인 __AGENT__ Session에 제출] = 저장 + 바뀐 글자 목록·댓글을 <폴더>/_review_events.jsonl 에 한 줄 기록 → 에이전트가 받아 반영
+- [진행중인 __AGENT__ Session에 제출] = 저장 + 바뀐 글자 목록·댓글을 <폴더>/_review_events.jsonl 에 한 줄 기록 → 에이전트가 받아 반영.
+  변경·댓글 없이 누르면 approved=true — "이상 없음" 승인으로 전달된다
 
 에이전트 쪽: 이 스크립트를 띄운 세션이 이벤트 파일을 지켜본다(SKILL.md / README.md).
 문서에 <script id="oub-meta"> 가 있고 OPENUB_REPORT_LIB 환경변수가 있으면 저장 때 수정일·이력을 갱신한다(openub-report 연동, 선택).
@@ -53,7 +54,10 @@ UI = r"""
 [data-rv-note]{outline:2px solid rgba(120,140,170,.6);outline-offset:2px}
 mark[data-rv-mark]{background:rgba(128,140,160,.35);color:inherit;border-radius:3px;padding:0 1px}
 .__rv_pin{position:absolute;z-index:99998;width:30px;height:30px;border-radius:50%;background:#2b2b2b;color:#e8e8e8;border:3px solid #2f6bdc;
-  display:flex;align-items:center;justify-content:center;font:600 12px/1 -apple-system,system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:default}
+  display:flex;align-items:center;justify-content:center;font:600 12px/1 -apple-system,system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer}
+.__rv_pin[data-n]::after{content:attr(data-n);position:absolute;right:-6px;top:-6px;background:#c96442;color:#fff;border-radius:9px;font-size:10px;padding:1px 5px}
+#__rv_pop .list{margin:0 0 10px;padding:0;list-style:none;max-height:160px;overflow:auto}#__rv_pop .list li{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid #3a3a3a;font-size:14px;color:#ddd}
+#__rv_pop .list li b{color:#9aa4b2;font-weight:600;min-width:22px}#__rv_pop .list li span{flex:1}#__rv_pop .list li button{background:none;border:0;color:#8a8a8a;cursor:pointer;font-size:14px;padding:0 4px}#__rv_pop .list li button:hover{color:#f87171}
 #__rv_bar{position:fixed;left:0;right:0;top:0;z-index:99999;display:flex;gap:10px;align-items:center;color-scheme:dark;
   padding:9px 18px;background:#1f1f1f;color:#d4d4d4;font:13px/1.4 -apple-system,system-ui,sans-serif;border-bottom:1px solid #333}
 body{padding-top:50px!important}
@@ -65,6 +69,7 @@ body{padding-top:50px!important}
 #__rv_pop .a{color:#a8a8a8;font-size:14px;border-left:2px solid #6b6b6b;padding-left:10px;margin-bottom:12px;max-height:44px;overflow:hidden}
 #__rv_pop textarea{width:100%;min-height:64px;font:inherit;font-size:17px;color:#fff;background:transparent;border:0;outline:0;padding:0;resize:none;box-sizing:border-box}
 #__rv_pop textarea::placeholder{color:#6f6f6f}
+#__rv_pop .sw{margin:-4px 0 6px}#__rv_pop .sw button{font:inherit;font-size:12.5px;color:#9aa4b2;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline dotted}#__rv_pop .sw button:disabled{text-decoration:none;cursor:default;color:#8a8a8a}
 #__rv_pop .r{display:flex;align-items:center;justify-content:space-between;margin-top:14px}
 #__rv_pop .lbl{color:#e8e8e8;font-size:17px}
 #__rv_pop .go{width:44px;height:44px;border-radius:12px;border:0;background:#c96442;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
@@ -101,18 +106,27 @@ document.addEventListener('contextmenu',function(e){var t=target(e);if(!t)return
   openPop(t,quote,range,e.pageX,e.pageY)});
 function openPop(t,quote,range,x,y){closePop();var d=document.createElement('div');d.id='__rv_pop';
   d.style.left=Math.max(8,Math.min(x,window.innerWidth-580+window.scrollX))+'px';d.style.top=(y+10)+'px';
-  d.innerHTML='<div class="t">'+(document.title||location.pathname).replace(/</g,'&lt;')+'</div><div class="a">'+(quote||t.textContent.trim()).slice(0,160).replace(/</g,'&lt;')+'</div>'
-   +'<textarea rows="2" placeholder="댓글 남기기"></textarea><div class="r"><span class="lbl">Send to __AGENT__</span><button class="go" data-a="ok" disabled aria-label="보내기"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>';
+  var whole=t.textContent.trim().slice(0,160).replace(/</g,'&lt;');
+  var mine=notes.filter(function(x){return x.el===t});
+  var list=mine.length?'<ul class="list">'+mine.map(function(x){return '<li><b>#'+x.n+'</b><span>'+(x.quote?'“'+x.quote.slice(0,40).replace(/</g,'&lt;')+'” · ':'')+x.text.replace(/</g,'&lt;')+'</span><button type="button" data-del="'+x.n+'" title="이 댓글 삭제">✕</button></li>'}).join('')+'</ul>':'';
+  d.innerHTML='<div class="t">'+(document.title||location.pathname).replace(/</g,'&lt;')+'</div>'+list+'<div class="a" data-mode="'+(quote?'quote':'whole')+'">'+(quote||t.textContent.trim()).slice(0,160).replace(/</g,'&lt;')+'</div>'
+   +'<div class="sw"><button type="button" data-a="sw">'+(quote?'이 요소 전체에 달기':'문구만 고르려면 드래그 후 우클릭')+'</button></div>'
+   +'<textarea rows="2" placeholder="'+(mine.length?'댓글 추가':'댓글 남기기')+'"></textarea><div class="r"><span class="lbl">Send to __AGENT__</span><button class="go" data-a="ok" disabled aria-label="보내기"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>';
   document.body.appendChild(d);var ta=d.querySelector('textarea'),go=d.querySelector('.go');ta.focus();
   ta.addEventListener('input',function(){go.disabled=!ta.value.trim();ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,240)+'px'});
   ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();go.click()}});
   go.addEventListener('click',function(){if(!ta.value.trim())return;
-    notes.push({n:notes.length+1,path:path(t),anchor:t.textContent.trim().slice(0,160),quote:quote||null,text:ta.value.trim()});
-    var ok=false;if(range){try{var m=document.createElement('mark');m.setAttribute('data-rv-mark','');range.surroundContents(m);ok=true;pin(m)}catch(err){}}
-    if(!ok){t.setAttribute('data-rv-note','');pin(t)}
-    closePop();st.textContent='댓글 '+notes.length+'개 (확인 전)'})}
-function pin(el){var r=el.getBoundingClientRect(),p=document.createElement('span');p.className='__rv_pin';p.textContent=INITIAL;p.title='댓글 '+notes.length+': '+notes[notes.length-1].text;
-  p.style.left=(r.left+window.scrollX-36)+'px';p.style.top=(r.top+window.scrollY+r.height/2-15)+'px';document.body.appendChild(p)}
+    notes.push({n:(notes.length?Math.max.apply(null,notes.map(function(x){return x.n})):0)+1,el:t,path:path(t),anchor:t.textContent.trim().slice(0,160),quote:quote||null,text:ta.value.trim()});
+    if(range){try{var m=document.createElement('mark');m.setAttribute('data-rv-mark','');range.surroundContents(m)}catch(err){}}
+    t.setAttribute('data-rv-note','');pin(t);closePop();st.textContent='댓글 '+notes.length+'개 (제출 전)'})}
+var pins=new Map();   // 요소 → 마커
+function pin(el){var p=pins.get(el);if(!p){p=document.createElement('span');p.className='__rv_pin';p.textContent=INITIAL;document.body.appendChild(p);pins.set(el,p);
+    p.addEventListener('click',function(e){e.stopPropagation();openPop(el,'',null,e.pageX,e.pageY)})}
+  var r=el.getBoundingClientRect(),n=notes.filter(function(x){return x.el===el}).length;
+  p.style.left=(r.left+window.scrollX-36)+'px';p.style.top=(r.top+window.scrollY+r.height/2-15)+'px';
+  if(n>1)p.setAttribute('data-n',n);else p.removeAttribute('data-n');p.title='댓글 '+n+'개 — 클릭하면 보기·추가·삭제'}
+function refreshPins(){pins.forEach(function(p,el){if(!notes.some(function(x){return x.el===el})){p.remove();pins.delete(el);el.removeAttribute('data-rv-note');el.querySelectorAll('mark[data-rv-mark]').forEach(function(m){m.replaceWith(document.createTextNode(m.textContent))})}else pin(el)});
+  st.textContent=notes.length?('댓글 '+notes.length+'개 (제출 전)'):''}
 function closePop(){var d=document.getElementById('__rv_pop');if(d)d.remove();var s=window.getSelection();if(s)s.removeAllRanges()}
 function edits(){var out=[];orig.forEach(function(before,el){var after=el.textContent;if(before!==after)out.push({path:path(el),before:before.trim(),after:after.trim()})});return out}
 function serialize(){var c=document.documentElement.cloneNode(true);
@@ -127,11 +141,12 @@ function post(url,body,type){return fetch(url,{method:'POST',headers:{'Content-T
 function save(){if(document.activeElement&&document.activeElement.isContentEditable)document.activeElement.blur();
   st.textContent='저장 중…';return post('/save',serialize(),'text/html;charset=utf-8').then(function(t){dirty=false;btn.disabled=true;st.textContent=t;return fetch('/mtime').then(function(r){return r.text()}).then(function(m){MT=m;return t})}).catch(function(e){st.textContent='실패: '+e})}
 btn.addEventListener('click',save);
-ok.addEventListener('click',function(){var ev={edits:edits(),comments:notes};if(!ev.edits.length&&!ev.comments.length&&!dirty){st.textContent=submitted?'제출이 완료되었습니다 (그 뒤 새 변경 없음)':'제출할 변경·댓글이 아직 없습니다';return}
+ok.addEventListener('click',function(){var ev={edits:edits(),comments:notes.map(function(x){return {n:x.n,path:x.path,anchor:x.anchor,quote:x.quote,text:x.text}})};ev.approved=!ev.edits.length&&!ev.comments.length;   // 변경·댓글 없이 제출 = 이상 없음(승인)
   (dirty?save():Promise.resolve()).then(function(){return post('/confirm',JSON.stringify(ev),'application/json')})
   .then(function(t){submitted=true;st.textContent=t;notes=[];document.querySelectorAll('[data-rv-note]').forEach(function(x){x.removeAttribute('data-rv-note')});
-    document.querySelectorAll('mark[data-rv-mark]').forEach(function(m){m.replaceWith(document.createTextNode(m.textContent))});document.querySelectorAll('.__rv_pin').forEach(function(p){p.remove()});orig.forEach(function(v,el){orig.set(el,el.textContent)})})});
+    document.querySelectorAll('mark[data-rv-mark]').forEach(function(m){m.replaceWith(document.createTextNode(m.textContent))});pins.forEach(function(p){p.remove()});pins.clear();orig.forEach(function(v,el){orig.set(el,el.textContent)})})});
 document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.key==='s'){e.preventDefault();save()}if(e.key==='Escape')closePop()});
+window.addEventListener('resize',function(){pins.forEach(function(p,el){pin(el)})});
 window.addEventListener('beforeunload',function(e){if(dirty){e.preventDefault();e.returnValue=''}});
 var MT=__MTIME__;setInterval(function(){fetch('/mtime').then(function(r){return r.text()}).then(function(m){if(m===MT)return;
   if(dirty||(document.activeElement&&document.activeElement.isContentEditable)){st.textContent='__AGENT__ 가 문서를 갱신했습니다 — 저장하면 새 판을 불러옵니다';return}
@@ -173,7 +188,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return reply(self, 200, f"저장됨 {len(raw.encode()):,}B")
         if self.path.startswith("/confirm"):
             ev = json.loads(raw); ev.update(ts=datetime.datetime.now().isoformat(timespec="seconds"), doc=str(DOC), agent=AGENT, status="new")
+            ev["approved"] = not ev.get("edits") and not ev.get("comments")
             with EVENTS.open("a", encoding="utf-8") as f: f.write(json.dumps(ev, ensure_ascii=False) + "\n")
+            if ev["approved"]: return reply(self, 200, f"이상 없음으로 제출되었습니다 — {AGENT} 에게 승인이 전달됩니다")
             return reply(self, 200, f"제출이 완료되었습니다 — 수정 {len(ev['edits'])}건 · 댓글 {len(ev['comments'])}건. {AGENT} 가 반영하면 화면이 자동으로 새로 고쳐집니다")
         reply(self, 404, "?")
 
