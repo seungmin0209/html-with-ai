@@ -30,4 +30,5 @@ Write-Host "Claude Code : $Dest"
 & python (Join-Path $Dest "register_hook.py")   # .html 저장마다 자동 발동하는 훅
 Write-Host "Codex       : 프로젝트 AGENTS.md 에 한 줄 — 'HTML 산출물은 $Dest\SKILL.md 규약(html-with-ai)으로 띄운다'"
 Write-Host "Gemini CLI  : GEMINI.md 에 같은 한 줄. review.py 실행 시 --agent Gemini"
-if (-not (Test-Path (Join-Path $env:USERPROFILE ".config\html-with-ai\config.json"))) { Write-Host "처음 실행: 에이전트가 발동 방식(always/ask/cases/off)을 먼저 묻습니다." }
+$Cfg = Join-Path $env:USERPROFILE ".config\html-with-ai\config.json"
+if (-not (Test-Path $Cfg)) { '{"mode": "ask", "cases": [], "first_run": true}' | Set-Content -Encoding UTF8 $Cfg; Write-Host "기본 설정 mode=ask 생성. 첫 HTML 때 에이전트가 발동 방식을 묻습니다." }

@@ -27,4 +27,4 @@ echo "Claude Code : ~/.claude/skills/html-with-ai"
 python3 "$HERE/register_hook.py" || true   # .html 저장마다 자동 발동하는 훅
 echo "Codex       : 프로젝트 AGENTS.md 에 한 줄 —  'HTML 산출물은 $HERE/SKILL.md 규약(html-with-ai)으로 띄운다'"
 echo "Gemini CLI  : GEMINI.md 에 같은 한 줄. review.py 실행 시 --agent Gemini"
-[ -f "$HOME/.config/html-with-ai/config.json" ] || echo "처음 실행: 에이전트가 발동 방식(always/ask/cases/off)을 먼저 묻습니다."
+[ -f "$HOME/.config/html-with-ai/config.json" ] || { printf '{"mode": "ask", "cases": [], "first_run": true}\n' > "$HOME/.config/html-with-ai/config.json"; echo "기본 설정 mode=ask 생성. 첫 HTML 때 에이전트가 발동 방식을 묻습니다."; }

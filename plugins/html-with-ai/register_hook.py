@@ -7,12 +7,13 @@ import json, pathlib, sys
 HERE = pathlib.Path(__file__).resolve().parent
 S = pathlib.Path.home() / ".claude" / "settings.json"
 cfg = json.loads(S.read_text()) if S.exists() else {}
-hooks = cfg.setdefault("hooks", {}); post = hooks.setdefault("PostToolUse", [])
-post[:] = [g for g in post if not any("html-with-ai/hook.py" in (h.get("command") or "") for h in g.get("hooks", []))]
+hooks = cfg.setdefault("hooks", {})
+def clean(lst): return [g for g in lst if not any("html-with-ai/hook.py" in (h.get("command") or "") for h in g.get("hooks", []))]
+post = hooks["PostToolUse"] = clean(hooks.get("PostToolUse", [])); stop = hooks["Stop"] = clean(hooks.get("Stop", []))
 if "--remove" not in sys.argv:
     hook = str(HERE / "hook.py").replace("\\", "/")
-    post.append({"matcher": "Write|Edit|MultiEdit|NotebookEdit",
-                 "hooks": [{"type": "command", "timeout": 10,
-                            "command": f'python3 "{hook}" 2>/dev/null || python "{hook}"'}]})
+    cmd = {"type": "command", "timeout": 10, "command": f'python3 "{hook}" 2>/dev/null || python "{hook}"'}
+    post.append({"matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash", "hooks": [cmd]})   # 저장·Bash 직후
+    stop.append({"hooks": [cmd]})                                                       # 턴 종료 안전망
 S.parent.mkdir(exist_ok=True); S.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
-print(("해제" if "--remove" in sys.argv else "등록") + f": {S}  (PostToolUse → hook.py). Claude Code 를 새로 열면 적용된다.")
+print(("해제" if "--remove" in sys.argv else "등록") + f": {S}  (PostToolUse[Write·Edit·Bash] + Stop → hook.py). Claude Code 를 새로 열면 적용된다.")

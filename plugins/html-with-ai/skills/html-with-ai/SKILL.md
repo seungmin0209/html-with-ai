@@ -1,6 +1,6 @@
 ---
 name: html-with-ai
-description: Edit & Tell <Agent> what to do — 에이전트(Claude · Codex · Gemini 등)가 사용자에게 보여 줄 HTML 산출물(보고서·대시보드·목업·문서 등 어떤 HTML 이든)을 만들거나 고쳐서 완성했을 때 발동한다. 산출물을 브라우저에 "이중클릭 = 수정, 우클릭 = 댓글" 화면으로 띄우고, 사용자가 [진행중인 <Agent> Session에 제출] 을 누르면 수정 내역과 댓글을 받아 반영한다. 트리거 — .html 산출물을 쓰거나 다시 생성한 직후, "편집기 열어줘", "HTML 고치고 싶어", "댓글 달게 해줘", "리뷰 모드".
+description: Edit & Tell <Agent> what to do — 사용자에게 보여 줄 HTML 산출물(보고서·요약·대시보드·목업·문서·랜딩 등 어떤 .html 이든)을 만들어 달라는 요청을 받았을 때, 그리고 그런 .html 을 어떤 도구(Write·Edit·Bash 스크립트)로든 쓰거나 고친 직후에 쓴다. 산출물을 브라우저에 "이중클릭 = 수정, 우클릭 = 댓글" 화면으로 띄우고, 사용자가 [진행중인 <Agent> Session에 제출] 을 누르면 수정 내역과 댓글을 받아 반영한다. 훅이 자동 발동하지만, 훅이 없거나 실패해도 이 설명에 맞으면 스킬을 따른다. 트리거 — "HTML 로 만들어줘", "보고서/대시보드/목업 만들어줘", .html 저장 직후, "편집기 열어줘", "HTML 고치고 싶어", "댓글 달게 해줘", "리뷰 모드".
 ---
 
 # html-with-ai — Edit & Tell <Agent> what to do
@@ -31,8 +31,14 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 ## 발동은 훅이 보장한다 — 스킬 이름을 타이핑할 필요가 없다
 
-`install.sh` / `install.ps1` 이 `~/.claude/settings.json` 에 **PostToolUse 훅**(`hook.py`)을 등록한다. 에이전트가 `.html` 파일을 쓰거나 고칠 때마다
-훅이 돌아 설정(mode)에 맞는 지시를 에이전트 문맥에 넣는다. 스킬 설명에 의존하지 않으므로 "왜 이번엔 안 떴지" 가 없다.
+플러그인(`hooks/hooks.json`) 또는 `install.sh`/`install.ps1`(`~/.claude/settings.json`) 이 `hook.py` 를 두 이벤트에 건다.
+
+- **PostToolUse** `Write|Edit|MultiEdit|NotebookEdit|Bash` — 파일 도구는 `file_path`, **Bash 는 명령문에서 `.html` 경로를 뽑아** 실제로 존재하고 60초 안에 바뀐 것만 대상으로 한다
+  (`cat > x.html <<EOF`, `tee`, `sed -i`, `cp`, 파이썬 스크립트 등 어떤 경로든 잡힌다).
+- **Stop** (턴 종료) — 안전망. 작업 디렉터리 아래에서 이 세션 중 바뀐 `.html` 이 아직 처리되지 않았으면 그때 발동한다. 어떤 도구로 만들었는지와 무관하다. `stop_hook_active` 면 재발동하지 않는다.
+
+처리한 문서는 `~/.config/html-with-ai/state.json` 에 세션별로 기록해 같은 문서를 두 번 띄우지 않는다. 설정 파일이 없으면 훅이 `mode: ask` 기본 파일을 만들고 첫 사용 안내를 한 번 넣는다.
+스킬 설명에 의존하지 않으므로 "왜 이번엔 안 떴지" 가 없다. 그래도 훅이 없는 환경이면 위 description 대로 스킬 자체가 발동한다.
 
 | 상태 | 훅이 하는 일 |
 |---|---|
@@ -109,7 +115,8 @@ python3 review.py --set-agent Codex            # 환경변수로 감지되지 �
 | 파일 | 역할 |
 |---|---|
 | `review.py` | 편집기 서버 + 브라우저 UI |
-| `hook.py` · `register_hook.py` | .html 저장마다 자동 발동하는 PostToolUse 훅과 그 등록 스크립트 |
+| `hook.py` · `register_hook.py` | PostToolUse(Write·Edit·Bash) + Stop 훅과 그 등록 스크립트 |
+| `~/.config/html-with-ai/state.json` | 세션별 처리 기록(중복 발동 방지) |
 | `install.sh` · `install.ps1` | 파이썬 3 확인·설치 + 스킬 폴더 배치 (Mac/Linux · Windows) |
 | `README.md` | Codex · Gemini 등 Claude 외 에이전트용 요약 |
 | `~/.config/html-with-ai/config.json` | 사용자 설정 (mode · cases · initial · agent) |
