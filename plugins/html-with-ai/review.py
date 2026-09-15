@@ -140,7 +140,8 @@ function closePop(){var d=document.getElementById('__rv_pop');if(d)d.remove();do
 function brify(el){var w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT),nodes=[];while(w.nextNode())if(w.currentNode.nodeValue.indexOf('\n')>=0)nodes.push(w.currentNode);
   nodes.forEach(function(n){var parts=n.nodeValue.split('\n'),f=document.createDocumentFragment();parts.forEach(function(p,i){if(i)f.appendChild(document.createElement('br'));if(p)f.appendChild(document.createTextNode(p))});n.parentNode.replaceChild(f,n)})}
 function edits(){var out=[];orig.forEach(function(before,el){var after=el.innerText;if(before!==after)out.push({path:path(el),before:before.trim(),after:after.trim()})});return out}
-function serialize(){var c=document.documentElement.cloneNode(true);
+function serialize(){orig.forEach(function(v,el){brify(el)});   // 편집한 요소의 줄바꿈을 <br> 로 (blur 를 놓친 경우 대비)
+  var c=document.documentElement.cloneNode(true);
   ['__rv_css','__rv_bar','__rv_js','__rv_pop'].forEach(function(id){var x=c.querySelector('#'+id);if(x)x.remove()});
   c.querySelectorAll('mark[data-rv-mark]').forEach(function(m){m.replaceWith(document.createTextNode(m.textContent))});
   c.querySelectorAll('[contenteditable]').forEach(function(x){x.removeAttribute('contenteditable')});
