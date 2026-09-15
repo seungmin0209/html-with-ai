@@ -11,7 +11,7 @@ Claude Code · Codex · Gemini CLI 어디서 쓰든 화면과 동작은 같고, 
 
 ## 설치 (폴더 하나 · Mac/Windows/Linux)
 
-- **권장(Claude Code)**: `/plugin marketplace add seungmin0209/html-with-ai` → `/plugin install html-with-ai@html-with-ai`. 파일 복사·권한 문제 없이 훅까지 설치된다. 아래는 그 밖의 방법이다.
+- **권장(Claude Code)**: 에이전트가 터미널에서 `claude plugin marketplace add seungmin0209/html-with-ai && claude plugin install html-with-ai@html-with-ai`. 사용자가 직접이면 입력창에 `/plugin …` 같은 두 줄. 파일 복사·권한 문제 없이 훅까지 설치된다. 아래는 그 밖의 방법이다.
 
 ```bash
 # Mac / Linux

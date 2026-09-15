@@ -1,23 +1,23 @@
 # html-with-ai — Edit & Tell <Agent> what to do
 
-**설치 (권장) — Claude Code 안에서 두 줄.** 파일 복사도, 권한 문제도 없다. 자동 발동 훅이 함께 설치되고 `/plugin update` 로 갱신된다.
-
-```
-/plugin marketplace add seungmin0209/html-with-ai
-/plugin install html-with-ai@html-with-ai
-```
-
-**또는 AI 에게 시킨다.** Claude Code(또는 Codex·Gemini) 에 이렇게 말한다:
+**설치는 AI 에게 한 줄.** Claude Code(또는 Codex·Gemini) 에 이렇게 말한다:
 
 > `https://github.com/seungmin0209/html-with-ai` 보고 html-with-ai 깔아줘
 
 에이전트가 할 일 (이 README 를 읽은 에이전트는 그대로 따른다):
-1. Claude Code 라면 먼저 사용자에게 위 두 줄(`/plugin …`)을 입력하라고 안내한다 — 이것이 가장 확실하다. 사용자가 원하지 않거나 다른 에이전트면 2 로.
-2. `git clone https://github.com/seungmin0209/html-with-ai ~/.config/html-with-ai/repo` 후
-   Mac/Linux: `sh ~/.config/html-with-ai/repo/plugins/html-with-ai/install.sh` · Windows: `powershell -ExecutionPolicy Bypass -File $HOME\.config\html-with-ai\repo\plugins\html-with-ai\install.ps1`
-   (파이썬 3 가 없으면 스크립트가 설치하고, `~/.claude/skills/html-with-ai` 배치와 PostToolUse 훅 등록까지 한다)
-3. `~/.claude` 쓰기가 막혀 2 가 실패하면 그 한 줄만 사용자에게 보여 직접 실행하게 한다.
-4. 끝나면 "Claude Code 를 새로 열면 적용된다. 첫 HTML 을 만들 때 발동 방식을 묻는다" 고 알린다.
+1. **Claude Code 라면 터미널 명령 두 줄로 플러그인을 설치한다.** 파일 복사·권한 문제가 없고, 자동 발동 훅이 함께 설치된다.
+   ```bash
+   claude plugin marketplace add seungmin0209/html-with-ai
+   claude plugin install html-with-ai@html-with-ai
+   ```
+   끝나면 "새 Claude Code 세션부터 적용된다. 첫 HTML 을 만들 때 발동 방식을 묻는다" 고 알린다. 갱신은 `claude plugin update html-with-ai@html-with-ai`.
+2. Claude Code 가 아니거나(Codex·Gemini) 1 이 안 되면 로컬 설치:
+   `git clone https://github.com/seungmin0209/html-with-ai ~/.config/html-with-ai/repo` 후
+   Mac/Linux `sh ~/.config/html-with-ai/repo/plugins/html-with-ai/install.sh` · Windows `powershell -ExecutionPolicy Bypass -File $HOME\.config\html-with-ai\repo\plugins\html-with-ai\install.ps1`
+   (파이썬 3 가 없으면 스크립트가 설치하고, `~/.claude/skills/html-with-ai` 배치와 PostToolUse 훅 등록까지 한다.
+   `~/.claude` 쓰기가 막혀 실패하면 그 한 줄만 사용자에게 보여 직접 실행하게 한다.)
+
+사람이 직접 하려면 Claude Code 입력창에 `/plugin marketplace add seungmin0209/html-with-ai` → `/plugin install html-with-ai@html-with-ai`.
 
 플러그인과 로컬 설치를 **둘 다** 하지 않는다 — 스킬과 훅이 두 번 뜬다. 로컬 설치를 지우려면 `python3 ~/.claude/skills/html-with-ai/register_hook.py --remove` 후 폴더 삭제.
 
