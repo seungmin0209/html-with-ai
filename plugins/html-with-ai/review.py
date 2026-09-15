@@ -119,6 +119,9 @@ function openPop(t,quote,range,x,y){closePop();t.setAttribute('data-rv-target','
    +'<div class="sw"><button type="button" data-a="sw">'+(quote?'이 요소 전체에 달기':'문구만 고르려면 드래그 후 우클릭')+'</button></div>'
    +'<textarea rows="2" placeholder="'+(mine.length?'댓글 추가':'댓글 남기기')+'"></textarea><div class="r"><span class="lbl">Send to __AGENT__</span><button class="go" data-a="ok" disabled aria-label="보내기"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>';
   document.body.appendChild(d);var ta=d.querySelector('textarea'),go=d.querySelector('.go');ta.focus();
+  d.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;
+    if(b.dataset.del){var n=+b.dataset.del;notes=notes.filter(function(x){return x.n!==n});refreshPins();closePop();return}   // 댓글 삭제
+    if(b.dataset.a==='sw'&&quote){quote='';range=null;d.querySelector('.a').textContent=whole;d.querySelector('.a').dataset.mode='whole';b.textContent='요소 전체에 달기로 바꿨습니다';b.disabled=true;ta.focus()}});
   ta.addEventListener('input',function(){go.disabled=!ta.value.trim();ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,240)+'px'});
   ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();go.click()}});
   go.addEventListener('click',function(){if(!ta.value.trim())return;
