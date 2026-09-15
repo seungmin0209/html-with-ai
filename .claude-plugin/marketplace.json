@@ -1,2 +1,2 @@
-{ "name": "html-with-ai", "owner": { "name": "Seungmin Song" },
-  "plugins": [ { "name": "html-with-ai", "source": "./plugins/html-with-ai", "description": "AI 가 만든 HTML 을 이중클릭으로 고치고 우클릭 댓글로 에이전트에게 다시 시키는 편집·리뷰 도구. Claude Code 훅으로 자동 발동. Codex·Gemini 도 review.py 단독 사용 가능." } ] }
+{ "name": "review-ai-artifacts", "owner": { "name": "Seungmin Song" },
+  "plugins": [ { "name": "review-ai-artifacts", "source": "./plugins/review-ai-artifacts", "description": "AI 가 만든 HTML 을 이중클릭으로 고치고 우클릭 댓글로 에이전트에게 다시 시키는 편집·리뷰 도구. Claude Code 훅으로 자동 발동. Codex·Gemini 도 review.py 단독 사용 가능." } ] }
