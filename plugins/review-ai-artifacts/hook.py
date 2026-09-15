@@ -57,26 +57,25 @@ def session_start(sid):
         for k in sorted(st, key=lambda k: st[k]["started"])[:-30]: st.pop(k, None)
     STATE.write_text(json.dumps(st, ensure_ascii=False)); return s
 
-def free_port(start=8901):
-    for p in range(start, start + 20):
-        with socket.socket() as s:
-            if s.connect_ex(("127.0.0.1", p)) != 0: return p
-    return start
+def launch(doc, agent):
+    """review.py 가 문서별 고정 포트를 고른다. 이미 떠 있으면 그 주소를 돌려준다."""
+    CFG_DIR.mkdir(parents=True, exist_ok=True); log = open(CFG_DIR / "server.log", "a")
+    kw = {"creationflags": 0x00000008} if os.name == "nt" else {"start_new_session": True}
+    p = subprocess.Popen([PY, str(HERE / "review.py"), str(doc), "--agent", agent, "--no-open"], stdout=subprocess.PIPE, stderr=log, text=True, **kw)
+    url = None
+    for _ in range(40):                      # 첫 줄(들)에서 URL 을 읽는다 — 최대 2초
+        line = p.stdout.readline()
+        if not line: break
+        m = re.search(r"http://localhost:(\d+)/", line)
+        if m: url = int(m.group(1)); break
+    return url or 8901
 def serving(doc):
-    for p in range(8901, 8921):
+    for p in range(8901, 8991):
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{p}/doc", timeout=0.3) as r:
+            with urllib.request.urlopen(f"http://127.0.0.1:{p}/doc", timeout=0.2) as r:
                 if r.read().decode() == str(doc): return p
         except Exception: pass
     return None
-def launch(doc, agent):
-    port = serving(doc)
-    if port is None:
-        port = free_port(); CFG_DIR.mkdir(parents=True, exist_ok=True); log = open(CFG_DIR / "server.log", "a")
-        kw = {"creationflags": 0x00000008} if os.name == "nt" else {"start_new_session": True}
-        subprocess.Popen([PY, str(HERE / "review.py"), str(doc), "--agent", agent, "--port", str(port), "--no-open"], stdout=log, stderr=log, **kw)
-        time.sleep(0.6)
-    return port
 
 HTML_RE = re.compile(r"""(?<![\w./-])((?:~|\.{1,2})?/?[^\s'"`;|&<>()]*?\.(?:html?|md|markdown))(?=$|[\s'"`;|&<>)])""", re.I)
 def candidates_from_command(cmd, cwd):
@@ -117,7 +116,7 @@ def instruct(event, doc, cfg, agent, sid):
         emit(event, f"{lead} 발동 방식이 ask 다. 사용자에게 \"'{doc.name}' 을 편집·댓글 화면으로 띄울까요?\" 한 줄만 물어라. 예라고 하면 `{PY} \"{rv}\" \"{doc}\" --agent {agent}` 를 백그라운드로 띄우고 이벤트 파일을 지켜본다. 규약: {skill}")
     if mode == "cases":
         emit(event, f"{lead} 발동 방식이 cases={cfg.get('cases')} 다. '{doc.name}' 이 그 경우에 해당하면 `{PY} \"{rv}\" \"{doc}\" --agent {agent}` 를 백그라운드로 띄우고 이벤트 파일을 지켜본다. 아니면 띄우지 않는다. 규약: {skill}")
-    port = launch(doc, agent)
+    port = serving(doc) or launch(doc, agent)
     emit(event, f"{lead} '{doc.name}' 을 편집·댓글 화면으로 띄웠다: http://localhost:{port}/ . 사용자에게 이 주소와 \"이중클릭으로 고치고 우클릭으로 댓글, 끝나면 [진행중인 {agent} Session에 제출]\" 을 한 줄로 알려라. "
          f"제출 이벤트 파일을 지켜봐라(Claude Code 는 Monitor persistent): {doc.parent/'_review_events.jsonl'} — status \"new\" 줄이 오면 edits 는 반영 확인, comments 는 파일을 고쳐 저장하고 status 를 done 으로. 규약: {skill}")
 

@@ -89,19 +89,19 @@ python3 review.py --set-agent Codex            # 환경변수로 감지되지 �
 
 ## 에이전트가 할 일 (발동이 결정된 산출물마다)
 
-1. HTML 을 다 쓰고 나서 편집기를 백그라운드로 띄운다. 같은 포트에 떠 있으면 먼저 내린다. `--agent` 에는 **자기 이름**을 넣는다 (Claude / Codex / Gemini …). 환경변수로 감지되면 생략해도 된다.
+1. HTML 을 다 쓰고 나서 편집기를 백그라운드로 띄운다. **포트는 문서 경로로 정해진다**(같은 문서 = 같은 포트, 이미 떠 있으면 재사용). 다른 문서의 서버를 내리지 않는다 — 여러 세션이 각자 문서를 띄워도 서로 덮어쓰지 않는다. `--agent` 에는 **자기 이름**을 넣는다 (Claude / Codex / Gemini …). 환경변수로 감지되면 생략해도 된다.
    ```bash
    # Mac/Linux
-   pkill -f "review.py" ; nohup python3 <이 폴더>/review.py "<산출물.html>" --agent Claude --port 8901 >/tmp/review-ai-artifacts.log 2>&1 &
+   nohup python3 <이 폴더>/review.py "<산출물.html>" --agent Claude >/tmp/review-ai-artifacts.log 2>&1 &   # 포트는 문서별로 자동(8901~8990). 로그 첫 줄의 URL 을 읽어 알린다. 다른 문서 서버를 pkill 하지 않는다
    # Windows (PowerShell)
-   Get-Process python -ErrorAction SilentlyContinue | Where-Object {$_.CommandLine -like "*review.py*"} | Stop-Process; Start-Process python -ArgumentList '<이 폴더>\review.py','<산출물.html>','--agent','Claude','--port','8901' -WindowStyle Hidden
+   Start-Process python -ArgumentList '<이 폴더>\review.py','<산출물.html>','--agent','Claude' -WindowStyle Hidden   # 포트 자동
    ```
 2. 이벤트 파일을 지켜본다. Claude Code 는 `Monitor`(persistent), 다른 에이전트는 백그라운드 `tail -F` 또는 폴링.
    ```bash
    F="<산출물 폴더>/_review_events.jsonl"; touch "$F"; tail -n0 -F "$F" | grep --line-buffered '"status": "new"'
    ```
    Windows 는 `Get-Content -Wait -Tail 0 <파일> | Select-String '"status": "new"'`. 감시 수단이 없으면 사용자가 "제출했어" 라고 말할 때 파일을 읽어도 된다.
-3. 사용자에게는 "http://localhost:8901 에 띄웠다. 이중클릭으로 고치고 우클릭으로 댓글, 끝나면 제출" 한 줄만 말한다.
+3. 사용자에게는 "http://localhost:<포트> 에 띄웠다. 이중클릭으로 고치고 우클릭으로 댓글, 끝나면 제출" 한 줄만 말한다.
 4. 이벤트 한 줄 JSON 을 읽는다.
    - `edits[]` `{path, before, after}` — 사용자가 직접 고친 글자. **파일에는 이미 저장돼 있다.** 다시 쓰지 말고 요약해 "수정 N건 반영 확인" 이라고 알린다. 생성 스크립트가 있는 문서면 원본(md·json·py)에도 같은 수정을 반영한다.
    - `comments[]` `{n, path, anchor, quote, text}` — 요청. `quote` 가 있으면 그 문구만, 없으면 `anchor` 요소 전체가 대상. 파일을 고쳐 저장하고 번호별로 무엇을 어떻게 바꿨는지 답한다. 판단이 갈리면 그 번호만 물어본다.

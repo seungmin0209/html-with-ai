@@ -25,7 +25,7 @@ def detect_agent():
     for k, v in AGENT_ENV:
         if os.environ.get(k): return v
     return None
-ap = argparse.ArgumentParser(); ap.add_argument("doc", nargs="?"); ap.add_argument("--port", type=int, default=8901); ap.add_argument("--no-open", action="store_true")
+ap = argparse.ArgumentParser(); ap.add_argument("doc", nargs="?"); ap.add_argument("--port", type=int, default=None, help="생략하면 문서 경로로 정해지는 고정 포트(8901~8990). 같은 문서는 항상 같은 포트"); ap.add_argument("--no-open", action="store_true")
 ap.add_argument("--set-mode", choices=["always", "ask", "cases", "off"], help="발동 방식 저장 후 종료")
 ap.add_argument("--cases", default="", help="--set-mode cases 일 때 쉼표 목록. 예: artifact,report,dashboard")
 ap.add_argument("--show-config", action="store_true")
@@ -46,6 +46,22 @@ if A.set_mode or A.show_config or A.set_initial or A.set_agent:
     print(json.dumps(cfg, ensure_ascii=False) if cfg else "설정 없음 — 첫 사용. SKILL.md 의 '처음 한 번 묻기' 절을 따른다"); sys.exit(0)
 assert A.doc, "HTML 파일 경로를 준다"
 DOC = pathlib.Path(A.doc).resolve(); assert DOC.is_file() and DOC.suffix.lower() in (".html", ".htm", ".md", ".markdown"), "HTML 또는 md 파일 하나를 준다"
+
+def pick_port(doc, want=None):
+    """문서별 고정 포트. 이미 그 포트에 같은 문서가 떠 있으면 (port, True). 다른 문서가 쓰고 있으면 다음 빈 포트."""
+    import socket, urllib.request, zlib
+    start = want or 8901 + zlib.crc32(str(doc).encode()) % 90
+    for p in list(range(start, 8991)) + list(range(8901, start)):
+        with socket.socket() as s:
+            if s.connect_ex(("127.0.0.1", p)) != 0: return p, False
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{p}/doc", timeout=0.3) as r:
+                if r.read().decode() == str(doc): return p, True
+        except Exception: pass
+    raise SystemExit("8901~8990 포트가 모두 사용 중")
+PORT, ALREADY = pick_port(DOC, A.port)
+if ALREADY:
+    print(f"이미 떠 있음: http://localhost:{PORT}/  ({DOC.name})", flush=True); sys.exit(0)
 IS_MD = DOC.suffix.lower() in (".md", ".markdown")
 EVENTS = DOC.parent / "_review_events.jsonl"
 
@@ -188,7 +204,11 @@ def md_to_html(md):
         s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
         s = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s); s = re.sub(r"(?<!\*)\*(?!\*)(.+?)\*(?!\*)", r"<i>\1</i>", s)
         return s
-    out, lines, i = [], md.splitlines(), 0
+    lines = md.splitlines()
+    if sum(1 for l in lines if l.strip()) <= 3 and len(md) > 1500:   # 블록 구분 없이 한 줄로 쓰인 md — 표식 앞에서 나눈다
+        md = re.sub(r"\s(?=#{1,6}\s)", "\n\n", md); md = re.sub(r"\s-\s(?=\S)", "\n- ", md); md = re.sub(r"\s(?=\|[^|]+\|)", "\n", md, count=1)
+        lines = md.splitlines()
+    out, i = [], 0
     while i < len(lines):
         l = lines[i]
         if l.startswith("```"):
@@ -266,6 +286,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
         reply(self, 404, "?")
 
 if __name__ == "__main__":
-    print(f"문서: {DOC}\n이벤트: {EVENTS}\nhttp://localhost:{A.port}/   (Ctrl+C 로 종료)", flush=True)
-    if not A.no_open: webbrowser.open(f"http://localhost:{A.port}/")
-    http.server.ThreadingHTTPServer(("127.0.0.1", A.port), Handler).serve_forever()
+    print(f"문서: {DOC}\n이벤트: {EVENTS}\nhttp://localhost:{PORT}/   (Ctrl+C 로 종료)", flush=True)
+    if not A.no_open: webbrowser.open(f"http://localhost:{PORT}/")
+    http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
