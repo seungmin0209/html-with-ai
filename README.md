@@ -17,6 +17,8 @@
    (파이썬 3 가 없으면 스크립트가 설치하고, `~/.claude/skills/html-with-ai` 배치와 PostToolUse 훅 등록까지 한다.
    `~/.claude` 쓰기가 막혀 실패하면 그 한 줄만 사용자에게 보여 직접 실행하게 한다.)
 
+**그 뒤로도 전부 자연어다.** "html-with-ai 업데이트해줘" · "리뷰 모드 물어봐로" · "편집기 열어줘" · "html-with-ai 지워줘" — 에이전트가 대응 명령을 대신 친다(SKILL.md 표).
+
 사람이 직접 하려면 Claude Code 입력창에 `/plugin marketplace add seungmin0209/html-with-ai` → `/plugin install html-with-ai@html-with-ai`.
 
 플러그인과 로컬 설치를 **둘 다** 하지 않는다 — 스킬과 훅이 두 번 뜬다. 로컬 설치를 지우려면 `python3 ~/.claude/skills/html-with-ai/register_hook.py --remove` 후 폴더 삭제.

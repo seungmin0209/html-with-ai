@@ -50,6 +50,22 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 훅 등록만 따로 하려면 `python3 register_hook.py`, 해제는 `--remove`. 사용자 터미널에서 실행한다(Claude Code 는 `~/.claude` 쓰기를 막는다).
 
+## 사용자는 자연어로만 말한다 — 명령은 에이전트가 친다
+
+사용자(비개발자 포함)는 터미널 명령을 알 필요가 없다. 아래처럼 말하면 에이전트가 대응 명령을 실행하고 결과를 한 줄로 알린다.
+
+| 사용자가 하는 말 | 에이전트가 실행 |
+|---|---|
+| "html-with-ai 깔아줘" / "<GitHub 링크> 보고 깔아줘" | `claude plugin marketplace add seungmin0209/html-with-ai && claude plugin install html-with-ai@html-with-ai` |
+| "html-with-ai 업데이트해줘" / "최신으로" | `claude plugin marketplace update html-with-ai && claude plugin update html-with-ai@html-with-ai` |
+| "html-with-ai 지워줘" / "꺼줘(완전히)" | `claude plugin uninstall html-with-ai@html-with-ai` (로컬 설치면 `register_hook.py --remove` 후 폴더 삭제) |
+| "리뷰 모드 항상 / 물어봐 / 아티팩트 올릴 때만 / 끄기" | `python3 <폴더>/review.py --set-mode always|ask|cases --cases artifact|off` |
+| "편집기 열어줘", "이 HTML 고치고 싶어" | `python3 <폴더>/review.py <문서.html>` (mode 와 무관하게 띄운다) |
+| "내 이니셜 승으로", "마커 글자 바꿔" | `python3 <폴더>/review.py --set-initial 승` |
+
+플러그인으로 설치된 경우 `<폴더>` 는 `~/.claude/plugins/cache/html-with-ai/html-with-ai/<버전>/` 이다. 사용자에게 경로나 명령을 되묻지 않는다.
+설치·갱신 뒤에는 "새 Claude Code 세션부터 적용된다" 고 한 줄 덧붙인다.
+
 ## 발동 방식 — 처음 한 번 묻고, 언제든 바꿀 수 있다
 
 `python3 review.py --show-config` 로 본다. **설정 파일이 없으면(처음 사용) 산출물을 띄우기 전에 먼저 묻는다.**
