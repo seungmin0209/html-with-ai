@@ -115,7 +115,7 @@ function openPop(t,quote,range,x,y){closePop();t.setAttribute('data-rv-target','
   var whole=label(t).replace(/</g,'&lt;');
   var mine=notes.filter(function(x){return x.el===t});
   var list=mine.length?'<ul class="list">'+mine.map(function(x){return '<li><b>#'+x.n+'</b><span>'+(x.quote?'“'+x.quote.slice(0,40).replace(/</g,'&lt;')+'” · ':'')+x.text.replace(/</g,'&lt;')+'</span><button type="button" data-del="'+x.n+'" title="이 댓글 삭제">✕</button></li>'}).join('')+'</ul>':'';
-  d.innerHTML='<div class="t">'+(document.title||location.pathname).replace(/</g,'&lt;')+'</div>'+list+'<div class="a" data-mode="'+(quote?'quote':'whole')+'">'+(quote||t.textContent.trim()).slice(0,160).replace(/</g,'&lt;')+'</div>'
+  d.innerHTML='<div class="t">'+(document.title||location.pathname).replace(/</g,'&lt;')+'</div>'+list+'<div class="a" data-mode="'+(quote?'quote':'whole')+'">'+(quote?quote.slice(0,160).replace(/</g,'&lt;'):whole)+'</div>'
    +'<div class="sw"><button type="button" data-a="sw">'+(quote?'이 요소 전체에 달기':'문구만 고르려면 드래그 후 우클릭')+'</button></div>'
    +'<textarea rows="2" placeholder="'+(mine.length?'댓글 추가':'댓글 남기기')+'"></textarea><div class="r"><span class="lbl">Send to __AGENT__</span><button class="go" data-a="ok" disabled aria-label="보내기"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div>';
   document.body.appendChild(d);var ta=d.querySelector('textarea'),go=d.querySelector('.go');ta.focus();
