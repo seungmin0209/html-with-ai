@@ -462,7 +462,9 @@ def idle_watch():
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def parse_request(self):
-        LAST[0] = time.time(); return super().parse_request()
+        ok = super().parse_request()
+        if ok and not self.path.startswith("/watch"): LAST[0] = time.time()   # 감시 heartbeat 는 "사람이 보고 있다" 가 아니다 — 이걸 세면 유휴 자동 종료가 영원히 오지 않는다
+        return ok
     def do_GET(self):
         if self.path == "/health": return reply(self, 200, json.dumps({"version":3,"doc":str(DOC),"owner":OWNER,"owner_label":OWNER_LABEL,"thread_id":THREAD,"automatic":bool(THREAD and CODEX)}), "application/json")
         if self.path == "/status":
