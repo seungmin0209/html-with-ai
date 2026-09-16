@@ -30,38 +30,44 @@ def is_artifact(p):
 
 def emit(event, ctx):
     if event == "Stop":
-        print(json.dumps({"decision": "block", "reason": ctx}, ensure_ascii=False))
+        print(json.dumps({"decision": "block", "reason": ctx}))
     else:
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": ctx}}, ensure_ascii=False))
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": ctx}}))
     sys.exit(0)
 
 def load_json(p, default):
-    try: return json.loads(p.read_text())
+    try: return json.loads(p.read_text(encoding="utf-8"))
     except Exception: return default
 
 def config():
     cfg = load_json(CONFIG, None)
     if cfg is None:                                   # [4] 기본 설정을 만들어 두고 첫 사용을 표시
         cfg = {"mode": "ask", "cases": [], "first_run": True, "created": time.strftime("%Y-%m-%d")}
-        CFG_DIR.mkdir(parents=True, exist_ok=True); CONFIG.write_text(json.dumps(cfg, ensure_ascii=False, indent=1))
+        CFG_DIR.mkdir(parents=True, exist_ok=True); CONFIG.write_text(json.dumps(cfg, ensure_ascii=False, indent=1), encoding="utf-8")
     return cfg
 
 def state(): return load_json(STATE, {})
 def mark(sid, doc):
-    st = state(); s = st.setdefault(sid, {"started": time.time(), "handled": []})
+    st = state(); s = st.setdefault(sid, {"started": time.time(), "handled": [], "dirs": []})
     if str(doc) not in s["handled"]: s["handled"].append(str(doc))
-    CFG_DIR.mkdir(parents=True, exist_ok=True); STATE.write_text(json.dumps(st, ensure_ascii=False))
+    CFG_DIR.mkdir(parents=True, exist_ok=True); STATE.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
 def session_start(sid):
-    st = state(); s = st.setdefault(sid, {"started": time.time(), "handled": []})
+    st = state(); s = st.setdefault(sid, {"started": time.time(), "handled": [], "dirs": []})
+    s.setdefault("dirs", [])   # 예전 형식의 기록
     if len(st) > 50:                                  # 오래된 세션 정리
         for k in sorted(st, key=lambda k: st[k]["started"])[:-30]: st.pop(k, None)
-    STATE.write_text(json.dumps(st, ensure_ascii=False)); return s
+    STATE.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8"); return s
+def note_dirs(sid, ds):
+    st = state(); s = st.setdefault(sid, {"started": time.time(), "handled": [], "dirs": []})
+    s["dirs"] = sorted(set(s.get("dirs", [])) | set(ds))
+    CFG_DIR.mkdir(parents=True, exist_ok=True); STATE.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8"); return s
 
-def launch(doc, agent):
+def launch(doc, agent, sid, cwd=None):
     """review.py 가 문서별 고정 포트를 고른다. 이미 떠 있으면 그 주소를 돌려준다."""
-    CFG_DIR.mkdir(parents=True, exist_ok=True); log = open(CFG_DIR / "server.log", "a")
+    CFG_DIR.mkdir(parents=True, exist_ok=True); log = open(CFG_DIR / "server.log", "a", encoding="utf-8")
     kw = {"creationflags": 0x00000008} if os.name == "nt" else {"start_new_session": True}
-    p = subprocess.Popen([PY, str(HERE / "review.py"), str(doc), "--agent", agent, "--no-open"], stdout=subprocess.PIPE, stderr=log, text=True, **kw)
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")   # Windows 기본 cp949 파이프에서 첫 줄을 읽다 죽는다 (실측)
+    p = subprocess.Popen([PY, str(HERE / "review.py"), str(doc), "--agent", agent, "--session", sid, "--session-label", f"{pathlib.Path(cwd or os.getcwd()).name} · {sid[:8]}", "--no-open"], stdout=subprocess.PIPE, stderr=log, text=True, encoding="utf-8", errors="replace", env=env, **kw)
     url = None
     for _ in range(40):                      # 첫 줄(들)에서 URL 을 읽는다 — 최대 2초
         line = p.stdout.readline()
@@ -70,12 +76,17 @@ def launch(doc, agent):
         if m: url = int(m.group(1)); break
     return url or 8901
 def serving(doc):
+    """이 문서를 이미 서비스 중인 서버의 (포트, 소유 세션). 없으면 (None, None). 구형 서버는 소유가 없어 None 이다."""
     for p in range(8901, 8991):
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{p}/doc", timeout=0.2) as r:
-                if r.read().decode() == str(doc): return p
-        except Exception: pass
-    return None
+                if r.read().decode() != str(doc): continue
+        except Exception: continue
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{p}/health", timeout=0.3) as r:
+                return p, json.load(r).get("owner")
+        except Exception: return p, None
+    return None, None
 
 HTML_RE = re.compile(r"""(?<![\w./-])((?:~|\.{1,2})?/?[^\s'"`;|&<>()]*?\.(?:html?|md|markdown))(?=$|[\s'"`;|&<>)])""", re.I)
 def candidates_from_command(cmd, cwd):
@@ -87,24 +98,57 @@ def candidates_from_command(cmd, cwd):
         except OSError: pass
     return sorted(set(out), key=lambda p: p.stat().st_mtime, reverse=True)
 
-def recent_htmls(cwd, since, handled):
+def dirs_from_tool(tool, ti, cwd):
+    """이 세션이 실제로 건드린 디렉터리. 안전망은 워크스페이스 전체가 아니라 여기만 본다."""
+    out = set()
+    if tool == "Bash":
+        for m in re.findall(r"""[^\s'"`;|&<>()]+""", ti.get("command", "") or ""):
+            q = pathlib.Path(os.path.expanduser(m))
+            q = q if q.is_absolute() else pathlib.Path(cwd or ".") / q
+            try:
+                if q.is_file(): out.add(str(q.parent.resolve()))
+            except OSError: pass
+    else:
+        fp = ti.get("file_path") or ti.get("notebook_path") or ""
+        if fp:
+            try: out.add(str(pathlib.Path(fp).resolve().parent))
+            except OSError: pass
+    return out
+
+def recent_htmls(roots, since, handled):
     found = []
-    for root, dirs, files in os.walk(cwd or "."):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
-        for f in files:
-            p = pathlib.Path(root, f).resolve()
-            if is_artifact(p):
-                try:
-                    if p.stat().st_mtime >= since and str(p) not in handled: found.append(p)
-                except OSError: pass
-        if len(found) > 200: break
+    for base in roots:
+        for root, dirs, files in os.walk(base):
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
+            for f in files:
+                p = pathlib.Path(root, f).resolve()
+                if is_artifact(p):
+                    try:
+                        if p.stat().st_mtime >= since and str(p) not in handled: found.append(p)
+                    except OSError: pass
+            if len(found) > 200: break
+    # 이미 누가 띄워 둔 문서는 그 세션 것이다. 안전망이 신호를 가로채지 않는다 (포트 순회는 한 번만)
+    served = set()
+    for port in range(8901, 8991):
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/doc", timeout=0.2) as r: served.add(r.read().decode("utf-8", "replace"))
+        except Exception: pass
+    found = [p for p in dict.fromkeys(found) if str(p) not in served]
     return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
 
+def monitor_cmd(doc, sid, port):
+    """Claude 세션이 그대로 붙여 쓰는 감시 명령. owner 가 이 세션인 새 제출만 알리고, 60초마다 /watch heartbeat 를 찍어 화면이 '감시 연결' 을 알게 한다.
+    Monitor 도구는 최대 30분(도구 상한)이라 만료 알림마다 같은 명령으로 다시 건다. 시작 시 처리 안 된 제출을 먼저 훑으므로 재무장 사이의 공백에 들어온 제출도 놓치지 않는다."""
+    ev = str(doc.parent / "_review_events.jsonl").replace('"', '\\"')
+    return (f"( while true; do curl -s -m 2 -X POST http://127.0.0.1:{port}/watch >/dev/null 2>&1; sleep 60; done ) & "
+            # 시작할 때 아직 처리 안 된(new) 내 제출을 먼저 훑는다 — Monitor 는 30분마다 만료돼 다시 걸어야 하는데, 그 사이 들어온 제출을 tail -n 0 이 건너뛴다
+            f"( [ -f \"{ev}\" ] && cat \"{ev}\"; tail -n 0 -F \"{ev}\" 2>/dev/null ) | grep --line-buffered \"\\\"status\\\": \\\"new\\\"\" | grep --line-buffered \"\\\"owner\\\": \\\"{sid}\\\"\" "
+            f"| while IFS= read -r l; do printf '%s' \"$l\" | python3 -c 'import sys,json; e=json.load(sys.stdin); print(\"[review-ai-artifacts] 새 제출\", e[\"id\"], \"final\" if e.get(\"final\") else (\"approved\" if e.get(\"approved\") else \"\"), \"edits\", len(e.get(\"edits\",[])), \"comments\", len(e.get(\"comments\",[])))'; done")
 def instruct(event, doc, cfg, agent, sid):
     skill = HERE / "SKILL.md"; rv = HERE / "review.py"
     lead = "[review-ai-artifacts]" + (" (턴 종료 안전망 — 저장 훅이 놓친 HTML)" if event == "Stop" else "")
     if cfg.get("first_run"):
-        cfg["first_run"] = False; CONFIG.write_text(json.dumps(cfg, ensure_ascii=False, indent=1)); mark(sid, doc)
+        cfg["first_run"] = False; CONFIG.write_text(json.dumps(cfg, ensure_ascii=False, indent=1), encoding="utf-8"); mark(sid, doc)
         emit(event, f"{lead} 이 스킬을 처음 쓴다. 산출물 '{doc.name}' 을 편집 화면으로 띄우기 전에, 사용자에게 채팅으로 네 가지를 한 문장씩 설명하고 하나를 고르게 하라: "
              "always(HTML 만들 때마다 자동) · ask(매번 물어보기) · cases(아티팩트·보고서 등 특정 경우만) · off(명시 요청에만). 기본은 ask 로 저장돼 있다. "
              f"고르면 `{PY} \"{rv}\" --set-mode <mode> [--cases a,b]` 로 저장하고, \"언제든 '리뷰 모드 항상/물어봐/특정 경우만/끄기' 라고 말하면 바꿀 수 있다\" 고 덧붙여라. "
@@ -116,9 +160,16 @@ def instruct(event, doc, cfg, agent, sid):
         emit(event, f"{lead} 발동 방식이 ask 다. 사용자에게 \"'{doc.name}' 을 편집·댓글 화면으로 띄울까요?\" 한 줄만 물어라. 예라고 하면 `{PY} \"{rv}\" \"{doc}\" --agent {agent}` 를 백그라운드로 띄우고 이벤트 파일을 지켜본다. 규약: {skill}")
     if mode == "cases":
         emit(event, f"{lead} 발동 방식이 cases={cfg.get('cases')} 다. '{doc.name}' 이 그 경우에 해당하면 `{PY} \"{rv}\" \"{doc}\" --agent {agent}` 를 백그라운드로 띄우고 이벤트 파일을 지켜본다. 아니면 띄우지 않는다. 규약: {skill}")
-    port = serving(doc) or launch(doc, agent)
+    port, owner = serving(doc)
+    if port and owner and owner != sid:   # 다른 세션이 맡은 문서 — 서버도 제출 신호도 건드리지 않는다
+        emit(event, f"{lead} '{doc.name}' 은 이미 **다른 세션**({owner})이 http://localhost:{port}/ 에서 검토 중이다. "
+             f"그 서버를 재시작하거나 `--close` 하지 말고, 그 문서의 제출 이벤트도 처리하지 마라 — 제출은 그 세션으로 간다. "
+             f"사용자가 이 세션에서 이어받기를 원하면 먼저 확인을 받아라. 규약: {skill}")
+    port = port or launch(doc, agent, sid, os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     emit(event, f"{lead} '{doc.name}' 을 편집·댓글 화면으로 띄웠다: http://localhost:{port}/ . 사용자에게 이 주소와 \"이중클릭으로 고치고 우클릭으로 댓글, 끝나면 [검토 제출]\" 을 한 줄로 알려라. "
-         f"Codex는 CODEX_THREAD_ID와 codex queue 연결을 /health에서 확인한다. 파일 tail만으로 턴 종료 후 자동 재개된다고 안내하지 않는다. 제출 이벤트 파일: {doc.parent/'_review_events.jsonl'} — status \"new\" 줄이 오면 edits 는 반영 확인, comments 는 파일을 고쳐 저장하고 status 를 done 으로. 규약: {skill}")
+         f"**지금 바로 Monitor 를 걸어라(Claude Code)** — 걸지 않으면 사용자가 제출해도 이 세션은 깨어나지 않는다. 다른 세션의 제출은 owner 필터로 걸러진다. timeout_ms 는 도구 상한인 1800000(30분) — **만료 알림이 오면 다른 일보다 먼저 같은 명령으로 다시 건다.** 시작할 때 밀린 제출을 먼저 알리므로 공백에 들어온 것도 잡힌다:\n"
+         f"  Monitor(description=\"{doc.name} 제출 감시\", timeout_ms=1800000, command=\"{monitor_cmd(doc, sid, port)}\")\n"
+         f"Codex는 CODEX_THREAD_ID와 codex queue 연결을 /health에서 확인한다(서버가 직접 깨운다). 제출 이벤트 파일: {doc.parent/'_review_events.jsonl'} — status \"new\" 줄이 오면 edits 는 반영 확인, comments 는 파일을 고쳐 저장하고 --ack. 규약: {skill}")
 
 def main():
     try: ev = json.load(sys.stdin)
@@ -129,10 +180,13 @@ def main():
     sess = session_start(sid)
     if event == "Stop":
         if ev.get("stop_hook_active"): sys.exit(0)
-        docs = recent_htmls(cwd, sess["started"] - 5, set(sess["handled"]))
+        roots = sess.get("dirs") or []          # 이 세션이 건드린 적 없는 폴더는 보지 않는다 — 다른 세션 산출물 침범 방지
+        if not roots: sys.exit(0)
+        docs = recent_htmls(roots, sess["started"] - 5, set(sess["handled"]))
         if not docs: sys.exit(0)
         instruct("Stop", docs[0], cfg, agent, sid)
     tool = ev.get("tool_name") or ""; ti = ev.get("tool_input") or {}
+    sess = note_dirs(sid, dirs_from_tool(tool, ti, cwd))
     if tool == "Bash":
         docs = candidates_from_command(ti.get("command", ""), cwd)
         if not docs: sys.exit(0)
@@ -142,7 +196,7 @@ def main():
         if not fp.lower().endswith(ART_EXT): sys.exit(0)
         doc = pathlib.Path(fp).resolve()
     if not doc.exists() or not is_artifact(doc): sys.exit(0)
-    if str(doc) in sess["handled"] and serving(doc): sys.exit(0)   # 이미 띄운 문서를 다시 고친 것 — 화면이 자동 새로고침한다
+    if str(doc) in sess["handled"] and serving(doc)[0]: sys.exit(0)   # 이미 띄운 문서를 다시 고친 것 — 화면이 자동 새로고침한다
     instruct("PostToolUse", doc, cfg, agent, sid)
 
 if __name__ == "__main__": main()

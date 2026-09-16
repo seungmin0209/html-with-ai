@@ -44,7 +44,7 @@ def update(events, event_id, **fields):
         os.replace(tmp, events)
         return row
 
-def submit(events, doc, agent, source, payload, thread=None, executable=None):
+def submit(events, doc, agent, source, payload, thread=None, executable=None, owner=None):
     event_id = str(uuid.UUID(payload.get('id') or str(uuid.uuid4())))
     if not isinstance(payload.get('edits'), list) or not isinstance(payload.get('comments'), list):
         raise ValueError('edits와 comments는 목록이어야 합니다.')
@@ -54,10 +54,12 @@ def submit(events, doc, agent, source, payload, thread=None, executable=None):
             if existing.get('doc') != str(doc):
                 raise ValueError('다른 문서의 제출 ID입니다.')
             return existing  # Same request retried: never queue it twice.
-        row = dict(id=event_id, edits=payload['edits'], comments=payload['comments'],
-                   approved=not payload['edits'] and not payload['comments'],
+        final = bool(payload.get('final'))   # '마무리' — 수정이 있어도 이걸로 끝, 더 고칠 것 없음
+        conflict = bool(payload.get('conflict'))   # 화면이 옛 판이라 파일에 저장하지 못했다 — edits 는 에이전트가 현재 파일에 before→after 로 적용한다
+        row = dict(id=event_id, edits=payload['edits'], comments=payload['comments'], final=final, conflict=conflict,
+                   approved=final or (not payload['edits'] and not payload['comments']),
                    ts=datetime.datetime.now().isoformat(timespec='seconds'), doc=str(doc),
-                   agent=agent, source=source, status='new', thread_id=thread,
+                   agent=agent, source=source, status='new', thread_id=thread, owner=owner,
                    delivery='pending' if thread and executable else 'manual')
         with events.open('a', encoding='utf-8') as f:
             f.write(json.dumps(row, ensure_ascii=False) + '\n'); f.flush(); os.fsync(f.fileno())
@@ -78,9 +80,9 @@ def submit(events, doc, agent, source, payload, thread=None, executable=None):
         delivery = 'failed'
     return update(events, event_id, delivery=delivery)
 
-def status(events, doc, thread=None):
-    rows = [r for r in read(events) if r.get('doc') == str(doc)]
+def status(events, doc, thread=None, owner=None):
+    rows = [r for r in read(events) if r.get('doc') == str(doc) and (owner is None or r.get('owner') in (owner, None))]   # 남의 세션 제출은 이 화면의 대기 건수가 아니다 (owner 없는 구형 줄은 포함)
     row = rows[-1] if rows else {}
-    result = {k:row.get(k) for k in ('id','status','delivery','result')}
+    result = {k:row.get(k) for k in ('id','status','delivery','result','approved','final','conflict')}
     result.update(automatic=bool(thread), pending_count=sum(r.get('status') == 'new' for r in rows))
     return result
