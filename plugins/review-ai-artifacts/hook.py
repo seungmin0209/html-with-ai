@@ -13,7 +13,8 @@ Stop (턴 종료)
 설정 파일이 없으면 mode=ask 로 만들고 first_run 을 표시해 "발동 방식을 먼저 물어라" 를 한 번 넣는다.
 처리한 문서는 ~/.config/review-ai-artifacts/state.json 에 세션별로 기록해 같은 문서를 두 번 띄우지 않는다.
 """
-import sys, os, re, json, pathlib, subprocess, socket, time, urllib.request
+import sys, os, re, json, pathlib, subprocess, socket, time, urllib.request, unicodedata
+def nfc(s): return unicodedata.normalize("NFC", str(s))   # macOS 는 한글 파일명을 NFD(자모 분해)로 돌려준다 — 경로 비교는 전부 NFC 로
 HERE = pathlib.Path(__file__).resolve().parent
 CFG_DIR = pathlib.Path.home() / ".config" / "review-ai-artifacts"
 CONFIG, STATE = CFG_DIR / "config.json", CFG_DIR / "state.json"
@@ -49,7 +50,7 @@ def config():
 def state(): return load_json(STATE, {})
 def mark(sid, doc):
     st = state(); s = st.setdefault(sid, {"started": time.time(), "handled": [], "dirs": []})
-    if str(doc) not in s["handled"]: s["handled"].append(str(doc))
+    if nfc(doc) not in s["handled"]: s["handled"].append(nfc(doc))
     CFG_DIR.mkdir(parents=True, exist_ok=True); STATE.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
 def session_start(sid):
     st = state(); s = st.setdefault(sid, {"started": time.time(), "handled": [], "dirs": []})
@@ -59,7 +60,7 @@ def session_start(sid):
     STATE.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8"); return s
 def note_dirs(sid, ds):
     st = state(); s = st.setdefault(sid, {"started": time.time(), "handled": [], "dirs": []})
-    s["dirs"] = sorted(set(s.get("dirs", [])) | set(ds))
+    s["dirs"] = sorted(set(s.get("dirs", [])) | set(ds)); s["last_tool"] = time.time()
     CFG_DIR.mkdir(parents=True, exist_ok=True); STATE.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8"); return s
 
 def launch(doc, agent, sid, cwd=None):
@@ -80,7 +81,7 @@ def serving(doc):
     for p in range(8901, 8991):
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{p}/doc", timeout=0.2) as r:
-                if r.read().decode() != str(doc): continue
+                if nfc(r.read().decode("utf-8","replace")) != nfc(doc): continue
         except Exception: continue
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{p}/health", timeout=0.3) as r:
@@ -115,25 +116,31 @@ def dirs_from_tool(tool, ti, cwd):
             except OSError: pass
     return out
 
-def recent_htmls(roots, since, handled):
+def recent_htmls(roots, since, handled, transcript=None, others=()):
+    """턴 종료 안전망 후보. 재귀하지 않는다 — 루트 폴더가 dirs 에 들어오면 워크스페이스 전체를 훑어 남의 산출물을 집는다(2026-09-17 실제 사례)."""
     found = []
     for base in roots:
-        for root, dirs, files in os.walk(base):
-            dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
-            for f in files:
-                p = pathlib.Path(root, f).resolve()
-                if is_artifact(p):
-                    try:
-                        if p.stat().st_mtime >= since and str(p) not in handled: found.append(p)
-                    except OSError: pass
-            if len(found) > 200: break
-    # 이미 누가 띄워 둔 문서는 그 세션 것이다. 안전망이 신호를 가로채지 않는다 (포트 순회는 한 번만)
-    served = set()
+        try: entries = list(os.scandir(base))
+        except OSError: continue
+        for e in entries:
+            if not e.is_file(): continue
+            q = pathlib.Path(e.path).resolve()
+            if not is_artifact(q): continue
+            try:
+                if q.stat().st_mtime >= since and nfc(q) not in handled: found.append(q)
+            except OSError: pass
+    found = [p for p in dict.fromkeys(found) if nfc(p) not in others]          # 다른 세션이 이미 본(만든) 파일은 그 세션 것이다
+    if transcript:                                                            # 이 세션 대화에 파일명이 한 번도 안 나왔으면 내 산출물이 아니다
+        try:
+            txt = pathlib.Path(transcript).read_text(encoding="utf-8", errors="replace")
+            found = [p for p in found if nfc(p.name) in nfc(txt)]
+        except OSError: pass
+    served = set()                                                            # 이미 누가 띄워 둔 문서는 그 세션 것이다 (포트 순회는 한 번만)
     for port in range(8901, 8991):
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/doc", timeout=0.2) as r: served.add(r.read().decode("utf-8", "replace"))
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/doc", timeout=0.2) as r: served.add(nfc(r.read().decode("utf-8", "replace")))
         except Exception: pass
-    found = [p for p in dict.fromkeys(found) if str(p) not in served]
+    found = [p for p in found if nfc(p) not in served]
     return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
 
 def monitor_cmd(doc, sid, port):
@@ -182,7 +189,9 @@ def main():
         if ev.get("stop_hook_active"): sys.exit(0)
         roots = sess.get("dirs") or []          # 이 세션이 건드린 적 없는 폴더는 보지 않는다 — 다른 세션 산출물 침범 방지
         if not roots: sys.exit(0)
-        docs = recent_htmls(roots, sess["started"] - 5, set(sess["handled"]))
+        since = (sess.get("last_tool") or sess["started"]) - 180   # 세션 시작이 아니라 마지막 도구 호출 기준 — 세션이 며칠 이어져도 옛 파일을 집지 않는다
+        others = {nfc(d) for k, v in state().items() if k != sid for d in v.get("handled", [])}
+        docs = recent_htmls(roots, since, {nfc(d) for d in sess["handled"]}, ev.get("transcript_path"), others)
         if not docs: sys.exit(0)
         instruct("Stop", docs[0], cfg, agent, sid)
     tool = ev.get("tool_name") or ""; ti = ev.get("tool_input") or {}
@@ -196,7 +205,7 @@ def main():
         if not fp.lower().endswith(ART_EXT): sys.exit(0)
         doc = pathlib.Path(fp).resolve()
     if not doc.exists() or not is_artifact(doc): sys.exit(0)
-    if str(doc) in sess["handled"] and serving(doc)[0]: sys.exit(0)   # 이미 띄운 문서를 다시 고친 것 — 화면이 자동 새로고침한다
+    if nfc(doc) in sess["handled"] and serving(doc)[0]: sys.exit(0)   # 이미 띄운 문서를 다시 고친 것 — 화면이 자동 새로고침한다
     instruct("PostToolUse", doc, cfg, agent, sid)
 
 if __name__ == "__main__": main()

@@ -15,7 +15,8 @@ Claude Code · Codex · Gemini CLI 등 어느 에이전트와도 쓴다. 화면 
 문서에 <script id="oub-meta"> 가 있고 OPENUB_REPORT_LIB 환경변수가 있으면 저장 때 수정일·이력을 갱신한다(openub-report 연동, 선택).
 ponytail: 글자 수정과 댓글만. 요소 추가·삭제·이동은 댓글로 에이전트에게 맡긴다.
 """
-import sys, os, re, json, pathlib, datetime, webbrowser, http.server, argparse, shutil, threading, time
+import sys, os, re, json, pathlib, datetime, webbrowser, http.server, argparse, shutil, threading, time, unicodedata
+def nfc(s): return unicodedata.normalize("NFC", str(s))   # macOS 한글 파일명(NFD) 과 사람이 친 경로(NFC) 를 같게 본다
 import events as review_events
 from html import escape as html_escape
 for _st in (sys.stdout, sys.stderr):   # Windows 기본 cp949 파이프에서 한글·기호가 깨지거나 훅이 죽는다
@@ -72,7 +73,7 @@ def pick_port(doc, want=None):
     for p in busy:
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{p}/doc", timeout=0.3) as r:
-                if r.read().decode() == str(doc): return p, True
+                if nfc(r.read().decode("utf-8","replace")) == nfc(doc): return p, True
         except Exception: pass
     free = next((p for p in order if p not in busy), None)
     if free is None: raise SystemExit("8901~8990 포트가 모두 사용 중")
@@ -471,7 +472,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path == "/changes":   # 가장 최근 반영의 변경 표시
             rows = [r for r in review_events.read(EVENTS) if r.get("doc") == str(DOC) and r.get("changes")]
             return reply(self, 200, json.dumps(rows[-1]["changes"] if rows else [], ensure_ascii=False), "application/json")
-        if self.path.startswith("/doc"): return reply(self, 200, str(DOC))
+        if self.path.startswith("/doc"): return reply(self, 200, nfc(DOC))
         body = md_to_html(DOC.read_text(encoding="utf-8")) if IS_MD else DOC.read_text(encoding="utf-8")
         ui = (UI.replace("__INITIAL__", json.dumps(INITIAL, ensure_ascii=False)).replace("__MTIME__", json.dumps(str(DOC.stat().st_mtime_ns)))
                 .replace("__AGENT__", html_escape(AGENT)).replace("__OWNER_LABEL__", json.dumps(OWNER_LABEL, ensure_ascii=False).replace("<", "\\u003c")).replace("__DELIVERY_LABEL__", ("Codex 자동 전달 연결" if THREAD and CODEX else "자동 전달 미연결 · 제출 저장 후 대화에서 알림 필요") if AGENT.lower() == "codex" else "").replace("__DOC_JSON__", json.dumps(str(DOC), ensure_ascii=False).replace("<", "\\u003c")).replace("__ISMD__", "true" if IS_MD else "false"))
