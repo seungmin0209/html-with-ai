@@ -205,7 +205,7 @@ body{padding-top:50px!important}
 <button id="__rv_whole">종합댓글달기</button><button id="__rv_save" hidden disabled>저장</button><button id="__rv_fin" class="fin" title="더 고칠 것 없음 — 수정이 있으면 반영 확인만 받고 이 검토를 끝낸다">마무리</button><button id="__rv_ok" class="pri">진행중인 __AGENT__ Session에 제출</button><button id="__rv_copy" hidden>전달 요청 복사</button><button id="__rv_fresh" hidden>새 판 불러오기</button><button id="__rv_marks" hidden title="커서를 올리면 고친 곳이 노란 테두리로 보이고, 누르면 고정됩니다">변경사항 확인</button><span class="st" id="__rv_st" role="status" aria-live="polite">__DELIVERY_LABEL__</span><span class="hint">이중클릭하여 직접 편집. 우클릭하여 현 __AGENT__ Session에게 Comment</span></div>
 <script id="__rv_js">
 (function(){
-Array.from(document.body.children).forEach(function(x){x.setAttribute('data-rv-orig','')});
+Array.from(document.body.children).forEach(function(x){if(String(x.id||'').indexOf('__rv_')!==0)x.setAttribute('data-rv-orig','')});   // 편집기 요소는 제외 — 표식이 붙으면 저장 때 걸러지지 않는다
 var dirty=false,submitted=false,orig=new Map(),notes=[],INITIAL=__INITIAL__,ISMD=__ISMD__,requestId=null,lastEvent=null,STALE=false;   // STALE: 에이전트가 새 판을 올렸지만 내 수정이 있어 불러오지 않은 상태
 // [저장] 버튼은 숨겨 둔다 — 제출·마무리가 저장을 포함한다. Cmd+S 로만 남긴다
 var bar=document.getElementById('__rv_bar'),st=document.getElementById('__rv_st'),btn=document.getElementById('__rv_save'),ok=document.getElementById('__rv_ok'),fresh=document.getElementById('__rv_fresh'),AGENT='__AGENT__';
@@ -280,12 +280,11 @@ function brify(el){var w=document.createTreeWalker(el,NodeFilter.SHOW_TEXT),node
 function edits(){var out=[];orig.forEach(function(before,el){var after=el.innerText;if(before!==after)out.push({path:path(el),before:before.trim(),after:after.trim()})});return out}
 function serialize(){orig.forEach(function(v,el){brify(el)});   // 편집한 요소의 줄바꿈을 <br> 로 (blur 를 놓친 경우 대비)
   var c=document.documentElement.cloneNode(true);
-  ['__rv_css','__rv_bar','__rv_js','__rv_pop'].forEach(function(id){var x=c.querySelector('#'+id);if(x)x.remove()});
+  c.querySelectorAll('#__rv_css,#__rv_bar,#__rv_js,#__rv_pop,#__rv_tip,.__rv_pin').forEach(function(x){x.remove()});   // 핀은 클래스라 id 목록에서 빠져 파일에 박히곤 했다 (댓글 원문이 title 로 남는다)
+  Array.from(c.querySelector('body').children).forEach(function(x){if(!x.hasAttribute('data-rv-orig'))x.remove()});    // 확장·스크립트가 끼운 것. 속성을 지우기 전에 판정한다
   c.querySelectorAll('mark[data-rv-mark]').forEach(function(m){m.replaceWith(document.createTextNode(m.textContent))});
   c.querySelectorAll('[contenteditable]').forEach(function(x){x.removeAttribute('contenteditable')});
   c.querySelectorAll('*').forEach(function(x){Array.from(x.attributes).forEach(function(a){if(a.name.indexOf('data-rv-')===0){if(a.name==='data-rv-href')x.setAttribute('href',a.value);x.removeAttribute(a.name)}})});
-  var keep=Array.from(document.body.children).filter(function(x){return x.hasAttribute('data-rv-orig')}).length; // 브라우저 확장이 끼운 요소 제거
-  Array.from(c.querySelector('body').children).forEach(function(x,i){if(i>=keep)x.remove()});
   c.removeAttribute('data-theme');return '<!doctype html>'+c.outerHTML}
 function post(url,body,type,extra){var h={'Content-Type':type};for(var k in (extra||{}))h[k]=extra[k];
   return fetch(url,{method:'POST',headers:h,body:body}).then(function(r){return r.text().then(function(t){if(!r.ok){var e=new Error(t||('HTTP '+r.status));e.code=r.status;throw e}return t})})}
@@ -495,7 +494,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             base = self.headers.get("X-Base-Mtime")
             if base and not self.headers.get("X-Force") and base != str(DOC.stat().st_mtime_ns):   # 에이전트가 그 사이 고쳤다
                 return reply(self, 409, "그 사이 문서가 바뀌었습니다")
-            if "__rv_bar" in raw: return reply(self, 400, "편집기 요소가 섞여 들어왔다 — 저장하지 않았습니다")
+            leak = next((m for m in ("__rv_bar", "__rv_pop", "__rv_pin", "__rv_tip", "__rv_js", "data-rv-note", "data-rv-changed") if m in raw), None)
+            if leak: return reply(self, 400, f"편집기 흔적({leak})이 섞여 들어와 저장하지 않았습니다 — 화면을 새로 고친 뒤 다시 시도하세요")
             bak = DOC.with_suffix(".html.bak")
             if not bak.exists(): bak.write_bytes(DOC.read_bytes())
             raw = bump_meta(raw); DOC.write_text(raw, encoding="utf-8")
