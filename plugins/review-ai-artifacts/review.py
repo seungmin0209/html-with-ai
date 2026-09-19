@@ -456,9 +456,11 @@ LAST = [time.time()]   # 마지막 요청 시각. 브라우저 탭이 열려 있
 WATCH = [0.0]          # 이 문서를 지켜보는 세션(Monitor)의 마지막 heartbeat. 90초 안이면 "감시 연결"
 def watched(): return CODEX is not None or time.time() - WATCH[0] < 90
 def quit_server(why):
-    pending = [r["id"] for r in review_events.read(EVENTS) if r.get("doc") == str(DOC) and r.get("status") == "new"]
-    print(f"종료({why}): {DOC.name}" + (f" — 미처리 제출 {len(pending)}건 남음, 다음 세션이 {EVENTS.name} 의 status new 를 처리한다" if pending else ""), flush=True)
-    threading.Thread(target=lambda: (time.sleep(.3), SRV.shutdown()), daemon=True).start()   # 응답을 다 보낸 뒤 멈춘다
+    threading.Thread(target=lambda: (time.sleep(.3), SRV.shutdown()), daemon=True).start()   # 먼저 예약한다 — 로그가 실패해도 종료는 취소되지 않는다
+    try:   # 훅이 띄운 서버는 stdout 파이프가 닫혀 있어 print 에서 BrokenPipeError 가 난다 (그 탓에 종료가 통째로 취소되곤 했다)
+        pending = [r["id"] for r in review_events.read(EVENTS) if nfc(r.get("doc", "")) == nfc(DOC) and r.get("status") == "new"]
+        print(f"종료({why}): {DOC.name}" + (f" — 미처리 제출 {len(pending)}건 남음, 다음 세션이 {EVENTS.name} 의 status new 를 처리한다" if pending else ""), flush=True)
+    except Exception: pass
 def idle_watch():
     while True:
         time.sleep(60)
