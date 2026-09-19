@@ -181,7 +181,7 @@ mark[data-rv-mark]{background:rgba(128,140,160,.35);color:inherit;border-radius:
   padding:9px 18px;background:#1f1f1f;color:#d4d4d4;font:13px/1.4 -apple-system,system-ui,sans-serif;border-bottom:1px solid #333}
 body{padding-top:50px!important}
 #__rv_bar b{color:#fff;margin-right:6px;letter-spacing:-.2px}#__rv_bar button{font:inherit;padding:6px 14px;border-radius:8px;border:1px solid #3a3a3a;background:#2b2b2b;color:#e8e8e8;cursor:pointer}
-#__rv_bar button.pri{background:#c96442;border-color:#c96442;color:#fff;font-weight:600}#__rv_bar button.fin{background:#1f8a4c;border-color:#1f8a4c;color:#fff;font-weight:600}#__rv_bar #__rv_marks.on{border-color:#e0a000;color:#f0c040}#__rv_bar button:disabled{opacity:.45;cursor:default}#__rv_bar .st{color:#8a8a8a}#__rv_bar .hint{margin-left:auto;color:#8a8a8a;text-align:right}
+#__rv_bar button.pri{background:#c96442;border-color:#c96442;color:#fff;font-weight:600}#__rv_bar button.pri.off,#__rv_bar button.fin.off{background:#4a4a4a;border-color:#5a5a5a;color:#bdbdbd}#__rv_bar .warn{color:#f0c040}#__rv_bar button.fin{background:#1f8a4c;border-color:#1f8a4c;color:#fff;font-weight:600}#__rv_bar #__rv_marks.on{border-color:#e0a000;color:#f0c040}#__rv_bar button:disabled{opacity:.45;cursor:default}#__rv_bar .st{color:#8a8a8a}#__rv_bar .hint{margin-left:auto;color:#8a8a8a;text-align:right}
 #__rv_pop{position:absolute;z-index:100000;color-scheme:dark;background:#2b2b2b;color:#ececec;border:1px solid #3d3d3d;border-radius:16px;padding:18px 22px 16px;
   box-shadow:0 12px 40px rgba(0,0,0,.45);width:560px;max-width:calc(100vw - 32px);font:15px/1.5 -apple-system,system-ui,"Apple SD Gothic Neo",sans-serif}
 /* 문서 쪽 CSS(overflow-wrap:anywhere, word-break, writing-mode 등)가 새어 들어와 글자가 한 자씩 세로로 끊기는 것을 막는다 */
@@ -202,12 +202,12 @@ body{padding-top:50px!important}
 @media print{#__rv_bar,#__rv_css,#__rv_pop,.__rv_pin{display:none}body{padding-top:0!important}}
 </style>
 <div id="__rv_bar"><b>Edit &amp; Tell __AGENT__ what to do</b>
-<button id="__rv_whole">종합댓글달기</button><button id="__rv_save" disabled>저장</button><button id="__rv_fin" class="fin" title="더 고칠 것 없음 — 수정이 있으면 반영 확인만 받고 이 검토를 끝낸다">마무리</button><button id="__rv_ok" class="pri">진행중인 __AGENT__ Session에 제출</button><button id="__rv_copy" hidden>전달 요청 복사</button><button id="__rv_fresh" hidden>새 판 불러오기</button><button id="__rv_marks" hidden title="커서를 올리면 고친 곳이 노란 테두리로 보이고, 누르면 고정됩니다">변경사항 확인</button><span class="st" id="__rv_st" role="status" aria-live="polite">__DELIVERY_LABEL__</span><span class="hint">이중클릭하여 직접 편집. 우클릭하여 현 __AGENT__ Session에게 Comment</span></div>
+<button id="__rv_whole">종합댓글달기</button><button id="__rv_save" hidden disabled>저장</button><button id="__rv_fin" class="fin" title="더 고칠 것 없음 — 수정이 있으면 반영 확인만 받고 이 검토를 끝낸다">마무리</button><button id="__rv_ok" class="pri">진행중인 __AGENT__ Session에 제출</button><button id="__rv_copy" hidden>전달 요청 복사</button><button id="__rv_fresh" hidden>새 판 불러오기</button><button id="__rv_marks" hidden title="커서를 올리면 고친 곳이 노란 테두리로 보이고, 누르면 고정됩니다">변경사항 확인</button><span class="st" id="__rv_st" role="status" aria-live="polite">__DELIVERY_LABEL__</span><span class="hint">이중클릭하여 직접 편집. 우클릭하여 현 __AGENT__ Session에게 Comment</span></div>
 <script id="__rv_js">
 (function(){
 Array.from(document.body.children).forEach(function(x){x.setAttribute('data-rv-orig','')});
 var dirty=false,submitted=false,orig=new Map(),notes=[],INITIAL=__INITIAL__,ISMD=__ISMD__,requestId=null,lastEvent=null,STALE=false;   // STALE: 에이전트가 새 판을 올렸지만 내 수정이 있어 불러오지 않은 상태
-if(ISMD){document.getElementById('__rv_save').style.display='none'}
+// [저장] 버튼은 숨겨 둔다 — 제출·마무리가 저장을 포함한다. Cmd+S 로만 남긴다
 var bar=document.getElementById('__rv_bar'),st=document.getElementById('__rv_st'),btn=document.getElementById('__rv_save'),ok=document.getElementById('__rv_ok'),fresh=document.getElementById('__rv_fresh'),AGENT='__AGENT__';
 fresh.addEventListener('click',function(){if(notes.length||dirty){if(!confirm('지금 화면의 수정과 댓글이 사라집니다. 새 판을 불러올까요?'))return}location.reload()});
 document.getElementById('__rv_whole').addEventListener('click',function(e){var r=e.currentTarget.getBoundingClientRect();openPop(null,'',null,r.left+window.scrollX,r.bottom+window.scrollY)});   // 특정 요소가 아닌 문서 전체에 다는 총평
@@ -232,7 +232,7 @@ document.addEventListener('dblclick',function(e){var t=target(e);if(!t)return;e.
   if(!orig.has(t))orig.set(t,t.innerText);
   if(t.tagName==='A'){t.dataset.rvHref=t.getAttribute('href');t.removeAttribute('href')}
   t.setAttribute('contenteditable','plaintext-only');t.focus();
-  t.addEventListener('input',function(){dirty=true;btn.disabled=false;st.textContent=ISMD?'수정됨 — 제출하면 원문에 반영':'저장 안 됨'},{once:true});
+  t.addEventListener('input',function(){dirty=true;btn.disabled=false;st.textContent=ISMD?'수정됨 — 제출하면 원문에 반영':'수정됨 — 제출하면 파일에 함께 저장됩니다'},{once:true});
   t.addEventListener('blur',function(){t.removeAttribute('contenteditable');brify(t);if(t.dataset.rvHref!==undefined){t.setAttribute('href',t.dataset.rvHref);delete t.dataset.rvHref}},{once:true});
 },true);
 document.addEventListener('mousedown',function(e){var d=document.getElementById('__rv_pop');if(d&&!d.contains(e.target)&&!d.querySelector('textarea').value.trim())closePop()},true); // 적기 전이면 바깥 클릭으로 닫힘
@@ -329,7 +329,7 @@ function showStatus(r){
   if(AG!=='Codex'&&(r.delivery==='manual'||!r.delivery)){   // Claude 등: 세션이 건 Monitor 가 이벤트 파일을 지켜본다 — heartbeat 로 확인한다
     if(r.conflict){st.textContent='제출되었습니다 — 화면은 옛 판이라 파일에 쓰지 않고, 이 수정을 '+AG+' 의 새 판 위에 얹어 달라고 보냈습니다. 반영되면 새 판을 불러옵니다';copy.hidden=r.watched!==false;return}
     if(r.watched===false){st.textContent='저장됨 — 지금 이 문서를 지켜보는 '+AG+' 세션이 없습니다. 대화창에 "제출 반영해줘" 라고 알려 주세요 (오른쪽 버튼으로 문구 복사)';copy.hidden=false;return}
-    st.textContent=r.final?('마무리로 제출되었습니다 — '+AG+' 가 확인하면 이 편집기를 내립니다'):r.approved?('이상 없음으로 제출되었습니다 — '+AG+' 에게 승인이 전달됩니다'):('제출이 완료되었습니다 — '+AG+' 가 반영하면 화면이 자동으로 새로 고쳐집니다');copy.hidden=true;return}
+    st.textContent=r.final?(r.watched===false?('마무리가 저장되었습니다 — 지켜보는 '+AG+' 세션이 없어 아직 전달되지 않았습니다. 대화창에 알려 주세요'):('마무리로 제출되었습니다 — '+AG+' 가 확인하면 이 편집기를 내립니다')):r.approved?('이상 없음으로 제출되었습니다 — '+AG+' 에게 승인이 전달됩니다'):('제출이 완료되었습니다 — '+AG+' 가 반영하면 화면이 자동으로 새로 고쳐집니다');copy.hidden=true;return}
   if(r.result){st.textContent=r.result;copy.hidden=false;return}
   var labels={queued:'저장됨 · Codex 큐 접수 · 반영 대기',pending:'저장됨 · 전달 확인 중',manual:'저장됨 · 자동 전달 미연결',failed:'저장됨 · 자동 전달 실패',unknown:'저장됨 · 전달 결과 미확인'};
   st.textContent=labels[r.delivery]||'저장됨 · 반영 대기';
@@ -339,7 +339,12 @@ document.getElementById('__rv_copy').addEventListener('click',function(){
   var message='review-ai-artifacts 제출 내용을 반영해줘. 문서: '+__DOC_JSON__+' / 제출 ID: '+((lastEvent||{}).id||'기존 미처리 제출');
   navigator.clipboard.writeText(message).then(function(){st.textContent='전달 요청 복사 완료 · 현재 대화에 붙여넣기'}).catch(function(){st.textContent=message});
 });
-var marks=document.getElementById('__rv_marks'),CH=[];
+var marks=document.getElementById('__rv_marks'),CH=[],WATCHED=null;
+function setWatched(w){if(w===WATCHED)return;WATCHED=w;   // 누르기 전에 보이게 한다 — 눌러 보고 나서야 아는 것은 늦다
+  var off=(w===false),tip=off?(AGENT+' 세션이 이 문서를 지켜보고 있지 않습니다. 지금 제출하면 파일에 저장만 되고, 대화창에 알려야 반영됩니다'):'';
+  [ok,fin].forEach(function(b){b.classList.toggle('off',off);if(off)b.title=tip;else b.removeAttribute('title')});
+  if(off&&!st.textContent)st.innerHTML='<span class="warn">'+AGENT+' 세션 미연결 — 제출은 저장되지만 알려야 반영됩니다</span>';
+  if(!off&&st.textContent.indexOf('미연결')>=0)st.textContent=''}
 var PIN=false;   // [변경사항 확인] 을 눌러 테두리를 고정했는가
 function setMarks(on){CH.forEach(function(el){if(on)el.setAttribute('data-rv-changed','');else el.removeAttribute('data-rv-changed')});if(!on)tipOff()}
 function showChanges(){fetch('/changes').then(function(r){return r.json()}).then(function(list){
@@ -366,7 +371,7 @@ document.addEventListener('mouseover',function(e){
   requestAnimationFrame(function(){if(!TIP)return;var t=TIP.getBoundingClientRect();
     if(t.right>window.innerWidth-8)TIP.style.left=Math.max(8,window.innerWidth-t.width-8+window.scrollX)+'px'})});
 showChanges();
-setInterval(function(){if(STALE||ok.disabled)return;fetch('/status').then(function(r){return r.json()}).then(function(r){if(r.id||r.pending_count){lastEvent=r;showStatus(r)}}).catch(function(){})},2000);
+setInterval(function(){if(STALE||ok.disabled)return;fetch('/status').then(function(r){return r.json()}).then(function(r){setWatched(r.watched);if(r.id||r.pending_count){lastEvent=r;showStatus(r)}}).catch(function(){})},2000);
 var MT=__MTIME__;setInterval(function(){fetch('/mtime').then(function(r){return r.text()}).then(function(m){if(m===MT)return;
   if(dirty||notes.length||(document.activeElement&&document.activeElement.isContentEditable)){
     STALE=true;fresh.hidden=false;
